@@ -10,6 +10,8 @@ La infraestructura (plantilla SAM y guía de despliegue) vive en el repo `vita-a
 - `adapters/`: lo único que habla con AWS (Connect) y los repositorios de datos.
 - `handlers/`: puntos de entrada de las Lambdas.
 - `tests/`: pruebas con pytest. Ninguna hace llamadas de red: AWS se simula con `botocore.stub.Stubber`.
+- `events/`: eventos de ejemplo para `sam local invoke`.
+- `docs/`: [contrato de la API de avisos](docs/contrato-api.md), para quien la llame desde la web.
 
 Este repo es público: no contiene teléfonos, identificadores de cuenta o de Connect ni datos de personas. Todo eso llega por variables de entorno desde la plantilla.
 
@@ -33,7 +35,7 @@ python -m venv .venv
 ```bash
 ruff check .
 ruff format --check .
-pytest --cov=core --cov=adapters --cov-fail-under=80
+pytest --cov=core --cov=adapters --cov=handlers --cov-fail-under=80
 ```
 
 El estilo es PEP 8, comprobado con ruff (configuración en `pyproject.toml`).
