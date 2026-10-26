@@ -41,3 +41,9 @@ class ErrorConfiguracion(ErrorCallbot):
     """La configuración de la aplicación es incorrecta."""
 
     codigo = "error_configuracion"
+
+
+class LlamadasDesactivadas(ErrorCallbot):
+    """Las llamadas están desactivadas por configuración (interruptor general)."""
+
+    codigo = "llamadas_desactivadas"
