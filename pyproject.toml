@@ -1,0 +1,29 @@
+[project]
+name = "vita-aws-code-callbot"
+version = "0.1.0"
+description = "Lógica del callbot de VitaPlus: avisos que terminan en una llamada de Amazon Connect."
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = [".aws-sam"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "adapters", "handlers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["core", "adapters", "handlers"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
