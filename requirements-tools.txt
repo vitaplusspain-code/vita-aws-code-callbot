@@ -1,0 +1,3 @@
+# Herramientas locales. Separadas de requirements-dev.txt porque aws-sam-cli
+# fija sus propias versiones de boto3 y no deben condicionar las del código.
+aws-sam-cli>=1.120
