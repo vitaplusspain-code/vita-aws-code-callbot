@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# SAM (pruebas locales)
+.aws-sam/
+
+# Varios
+.env
+.env.*
+*.log
