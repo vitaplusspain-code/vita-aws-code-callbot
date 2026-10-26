@@ -11,6 +11,7 @@ La infraestructura (plantilla SAM y guía de despliegue) vive en el repo `vita-a
 - `handlers/`: puntos de entrada de las Lambdas.
 - `tests/`: pruebas con pytest. Ninguna hace llamadas de red: AWS se simula con `botocore.stub.Stubber`.
 - `events/`: eventos de ejemplo para `sam local invoke`.
+- `connect/`: [flujo de Amazon Connect](connect/flujo-aviso.md) que lee el aviso al familiar, en JSON importable y como guía para crearlo a mano.
 - `docs/`: [contrato de la API de avisos](docs/contrato-api.md), para quien la llame desde la web.
 
 Este repo es público: no contiene teléfonos, identificadores de cuenta o de Connect ni datos de personas. Todo eso llega por variables de entorno desde la plantilla.

@@ -18,6 +18,7 @@ from core.errores import ErrorConfiguracion, ErrorConnect
 from core.telefono import es_telefono_e164
 
 __all__ = [
+    "ATRIBUTO_MENSAJE",
     "CODIGOS_AWS_CONOCIDOS",
     "CONFIG_CONNECT",
     "LONGITUD_MAXIMA_ATRIBUTO",
@@ -38,6 +39,9 @@ CONFIG_CONNECT = Config(
     read_timeout=SEGUNDOS_LECTURA,
     retries={"total_max_attempts": 1, "mode": "standard"},
 )
+
+# Atributo de contacto con el SSML; el flujo lo lee como `$.Attributes.mensaje`.
+ATRIBUTO_MENSAJE = "mensaje"
 
 # Límite de los valores de `Attributes` en el modelo de botocore (32767),
 # aplicado aquí en bytes UTF-8 por prudencia.
@@ -131,7 +135,7 @@ class ConnectAdapter:
                 ContactFlowId=self._contact_flow_id,
                 InstanceId=self._instance_id,
                 SourcePhoneNumber=self._numero_origen,
-                Attributes={"mensaje": mensaje_ssml},
+                Attributes={ATRIBUTO_MENSAJE: mensaje_ssml},
             )
         except (ClientError, BotoCoreError) as error:
             mensaje = _traducir(error)
