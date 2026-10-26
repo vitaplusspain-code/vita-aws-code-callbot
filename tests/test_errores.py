@@ -5,6 +5,7 @@ from core.errores import (
     ErrorCallbot,
     ErrorConfiguracion,
     ErrorConnect,
+    LlamadasDesactivadas,
     PersonaNoEncontrada,
     TelefonoNoPermitido,
 )
@@ -18,6 +19,7 @@ from core.errores import (
         (TelefonoNoPermitido, "telefono_no_permitido"),
         (ErrorConnect, "error_connect"),
         (ErrorConfiguracion, "error_configuracion"),
+        (LlamadasDesactivadas, "llamadas_desactivadas"),
     ],
 )
 def test_cada_error_tiene_su_codigo_y_hereda_de_la_base(
