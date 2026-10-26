@@ -1,0 +1,30 @@
+{
+  "resource": "/avisos",
+  "path": "/avisos",
+  "httpMethod": "POST",
+  "headers": {
+    "Content-Type": "application/json",
+    "x-api-key": "CLAVE-DE-EJEMPLO"
+  },
+  "multiValueHeaders": {
+    "Content-Type": ["application/json"],
+    "x-api-key": ["CLAVE-DE-EJEMPLO"]
+  },
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "resourcePath": "/avisos",
+    "httpMethod": "POST",
+    "path": "/dev/avisos",
+    "stage": "dev",
+    "requestId": "00000000-0000-0000-0000-000000000000",
+    "identity": {
+      "sourceIp": "192.0.2.10",
+      "apiKey": "CLAVE-DE-EJEMPLO"
+    }
+  },
+  "body": "{\"persona_id\": \"demo-01\", \"caso\": \"medicacion_7_dias\"}",
+  "isBase64Encoded": false
+}
