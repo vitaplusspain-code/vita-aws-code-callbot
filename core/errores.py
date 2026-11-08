@@ -31,10 +31,22 @@ class TelefonoNoPermitido(ErrorCallbot):
     codigo = "telefono_no_permitido"
 
 
-class ErrorConnect(ErrorCallbot):
+class ErrorCanal(ErrorCallbot):
+    """Fallo del canal que hace llegar el aviso al familiar."""
+
+    codigo = "error_canal"
+
+
+class ErrorConnect(ErrorCanal):
     """Fallo al pedir la llamada a Amazon Connect (lo lanza el adaptador)."""
 
     codigo = "error_connect"
+
+
+class ErrorBaseDatos(ErrorCallbot):
+    """Fallo al leer o escribir en Aurora (lo lanza el adaptador)."""
+
+    codigo = "error_base_datos"
 
 
 class ErrorConfiguracion(ErrorCallbot):
