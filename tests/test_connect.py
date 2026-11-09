@@ -17,25 +17,35 @@ from botocore.stub import Stubber
 
 import adapters.connect as modulo_connect
 from adapters.connect import (
+    ATRIBUTO_DETALLE,
+    ATRIBUTO_SALUDO,
     CODIGOS_AWS_CONOCIDOS,
     CONFIG_CONNECT,
     LONGITUD_MAXIMA_ATRIBUTO,
     ConnectAdapter,
 )
-from core.errores import ErrorConfiguracion, ErrorConnect
+from core.errores import ErrorCanal, ErrorConfiguracion, ErrorConnect
+from core.mensaje import MensajeAviso
+from core.puertos import CanalAviso
 
 INSTANCE_ID = "11111111-2222-3333-4444-555555555555"
 CONTACT_FLOW_ID = "66666666-7777-8888-9999-000000000000"
 ORIGEN = "+15550000001"
 DESTINO = "+34600000001"
+SALUDO = "<speak>Saludo</speak>"
 SSML = "<speak>Mensaje de prueba</speak>"
+MENSAJE = MensajeAviso(saludo=SALUDO, detalle=SSML)
 PARAMETROS = {
     "DestinationPhoneNumber": DESTINO,
     "ContactFlowId": CONTACT_FLOW_ID,
     "InstanceId": INSTANCE_ID,
     "SourcePhoneNumber": ORIGEN,
-    "Attributes": {"mensaje": SSML},
+    "Attributes": {"saludo": SALUDO, "detalle": SSML},
 }
+
+
+def _con_detalle(detalle: str) -> MensajeAviso:
+    return MensajeAviso(saludo=SALUDO, detalle=detalle)
 
 
 def _cliente() -> Any:
@@ -87,7 +97,7 @@ def test_inicia_la_llamada_con_los_parametros_exactos() -> None:
             expected_params=PARAMETROS,
         )
 
-        contacto = _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        contacto = _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
         stubber.assert_no_pending_responses()
     assert contacto == "contacto-prueba"
@@ -107,7 +117,7 @@ def test_client_error_se_traduce_a_error_connect_con_el_codigo(codigo: str) -> N
     cliente = _ClienteQueFalla(_error_aws(codigo))
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert str(info.value) == f"Connect rechazó la llamada (código: {codigo})."
     assert info.value.__context__ is None
@@ -124,7 +134,7 @@ def test_el_error_no_filtra_telefono_ssml_ni_texto_de_aws() -> None:
         )
 
         with pytest.raises(ErrorConnect) as info:
-            _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+            _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     texto = str(info.value) + repr(info.value)
     for dato in (DESTINO, "600000001", SSML, "Mensaje de prueba", "secreto"):
@@ -150,7 +160,7 @@ def test_codigo_desconocido_no_se_refleja() -> None:
     cliente = _ClienteQueFalla(_error_aws("x34600000001"))
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert str(info.value) == "Connect rechazó la llamada."
 
@@ -159,7 +169,7 @@ def test_client_error_sin_codigo_usa_mensaje_sin_codigo() -> None:
     cliente = _ClienteQueFalla(_error_aws(None))
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert str(info.value) == "Connect rechazó la llamada."
 
@@ -176,7 +186,7 @@ def test_configuracion_de_aws_incompleta(error: Exception) -> None:
     cliente = _ClienteQueFalla(error)
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     mensaje = "Configuración de AWS incompleta para llamar a Connect."
     assert str(info.value) == mensaje
@@ -189,7 +199,7 @@ def test_error_generico_de_botocore_se_traduce_a_error_connect() -> None:
     )
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert str(info.value) == "Fallo al comunicarse con Connect."
     assert DESTINO not in str(info.value)
@@ -210,7 +220,7 @@ def test_el_fallo_se_registra_con_tipo_y_codigo_sin_datos(
             caplog.at_level(logging.WARNING, logger="adapters.connect"),
             pytest.raises(ErrorConnect),
         ):
-            _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+            _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     (registro,) = caplog.records
     assert registro.getMessage() == "connect_fallo"
@@ -227,7 +237,7 @@ def test_codigo_desconocido_no_se_registra(caplog: pytest.LogCaptureFixture) -> 
         caplog.at_level(logging.WARNING, logger="adapters.connect"),
         pytest.raises(ErrorConnect),
     ):
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert caplog.records[0].codigo is None
     assert "34600000001" not in caplog.text + repr(caplog.records[0].__dict__)
@@ -245,7 +255,7 @@ def test_error_del_stubber_se_ve_en_el_log(caplog: pytest.LogCaptureFixture) -> 
             caplog.at_level(logging.WARNING, logger="adapters.connect"),
             pytest.raises(ErrorConnect),
         ):
-            _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+            _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert caplog.records[0].tipo == "StubAssertionError"
     assert caplog.records[0].codigo is None
@@ -256,7 +266,7 @@ def test_destino_invalido_no_llama_a_connect(destino: str) -> None:
     cliente = _ClienteQueFalla(RuntimeError("no debe llamarse"))
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(destino, SSML)
+        _adaptador(cliente).iniciar_llamada(destino, MENSAJE)
 
     assert cliente.llamadas == 0
     assert str(info.value) == "El teléfono de destino no es válido."
@@ -267,7 +277,7 @@ def test_mensaje_demasiado_largo_no_llama_a_connect() -> None:
     largo = "a" * (LONGITUD_MAXIMA_ATRIBUTO + 1)
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, largo)
+        _adaptador(cliente).iniciar_llamada(DESTINO, _con_detalle(largo))
 
     assert cliente.llamadas == 0
     assert "aaaa" not in str(info.value)
@@ -280,34 +290,58 @@ def test_el_limite_se_mide_en_bytes_utf8() -> None:
     assert len(con_tildes) < LONGITUD_MAXIMA_ATRIBUTO
 
     with pytest.raises(ErrorConnect):
-        _adaptador(cliente).iniciar_llamada(DESTINO, con_tildes)
+        _adaptador(cliente).iniciar_llamada(DESTINO, _con_detalle(con_tildes))
 
     assert cliente.llamadas == 0
 
 
 def test_mensaje_con_tildes_justo_en_el_limite_se_envia() -> None:
     cliente = _cliente()
-    justo = "á" * (LONGITUD_MAXIMA_ATRIBUTO // 2) + "a"
-    assert len(justo.encode("utf-8")) == LONGITUD_MAXIMA_ATRIBUTO
+    # El límite cuenta las dos partes juntas: el detalle llena lo que deja
+    # el saludo.
+    resto = LONGITUD_MAXIMA_ATRIBUTO - len(SALUDO.encode("utf-8"))
+    justo = "á" * (resto // 2) + "a" * (resto % 2)
+    assert len((SALUDO + justo).encode("utf-8")) == LONGITUD_MAXIMA_ATRIBUTO
     with Stubber(cliente) as stubber:
         stubber.add_response(
             "start_outbound_voice_contact",
             {"ContactId": "c-1"},
-            expected_params={**PARAMETROS, "Attributes": {"mensaje": justo}},
+            expected_params={
+                **PARAMETROS,
+                "Attributes": {"saludo": SALUDO, "detalle": justo},
+            },
         )
 
-        assert _adaptador(cliente).iniciar_llamada(DESTINO, justo) == "c-1"
+        mensaje = _con_detalle(justo)
+        assert _adaptador(cliente).iniciar_llamada(DESTINO, mensaje) == "c-1"
 
         stubber.assert_no_pending_responses()
 
 
-def test_mensaje_vacio_no_llama_a_connect() -> None:
+@pytest.mark.parametrize(
+    "mensaje",
+    [
+        MensajeAviso(saludo="", detalle=SSML),
+        MensajeAviso(saludo=SALUDO, detalle=""),
+        MensajeAviso(saludo="", detalle=""),
+    ],
+)
+def test_una_parte_vacia_no_llama_a_connect(mensaje: MensajeAviso) -> None:
     cliente = _ClienteQueFalla(RuntimeError("no debe llamarse"))
 
     with pytest.raises(ErrorConnect):
-        _adaptador(cliente).iniciar_llamada(DESTINO, "")
+        _adaptador(cliente).iniciar_llamada(DESTINO, mensaje)
 
     assert cliente.llamadas == 0
+
+
+def test_los_atributos_son_los_que_lee_el_flujo() -> None:
+    assert (ATRIBUTO_SALUDO, ATRIBUTO_DETALLE) == ("saludo", "detalle")
+
+
+def test_el_adaptador_cumple_el_puerto_del_canal_de_aviso() -> None:
+    assert isinstance(_adaptador(_cliente()), CanalAviso)
+    assert issubclass(ErrorConnect, ErrorCanal)
 
 
 def test_dos_llamadas_consumen_dos_respuestas_encoladas() -> None:
@@ -317,8 +351,8 @@ def test_dos_llamadas_consumen_dos_respuestas_encoladas() -> None:
         stubber.add_response("start_outbound_voice_contact", {"ContactId": "c-2"})
         adaptador = _adaptador(cliente)
 
-        primero = adaptador.iniciar_llamada(DESTINO, SSML)
-        segundo = adaptador.iniciar_llamada(DESTINO, SSML)
+        primero = adaptador.iniciar_llamada(DESTINO, MENSAJE)
+        segundo = adaptador.iniciar_llamada(DESTINO, MENSAJE)
 
         stubber.assert_no_pending_responses()
     assert (primero, segundo) == ("c-1", "c-2")
@@ -329,7 +363,7 @@ def test_contact_id_ausente_o_vacio_es_error(respuesta: dict[str, Any]) -> None:
     cliente = _ClienteQueDevuelve(respuesta)
 
     with pytest.raises(ErrorConnect) as info:
-        _adaptador(cliente).iniciar_llamada(DESTINO, SSML)
+        _adaptador(cliente).iniciar_llamada(DESTINO, MENSAJE)
 
     assert str(info.value) == "Connect no devolvió el identificador del contacto."
 

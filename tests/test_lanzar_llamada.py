@@ -16,7 +16,7 @@ from botocore.stub import Stubber
 import handlers.lanzar_llamada as modulo
 from adapters.connect import ConnectAdapter
 from core.errores import ErrorCallbot, ErrorConfiguracion, ErrorConnect
-from core.mensaje import construir_mensaje
+from core.mensaje import construir_mensaje_caso
 from core.telefono import enmascarar_telefono
 from core.tipos import Caso
 
@@ -40,9 +40,13 @@ ENTORNO = {
     "DEMO_FAMILIAR_TELEFONO": DESTINO,
 }
 CUERPO_OK = json.dumps({"persona_id": "demo-01", "caso": "sin_actividad_hoy"})
-SSML_ESPERADO = construir_mensaje(
+MENSAJE_ESPERADO = construir_mensaje_caso(
     Caso.SIN_ACTIVIDAD_HOY, NOMBRE_PERSONA, NOMBRE_FAMILIAR
 )
+ATRIBUTOS_ESPERADOS = {
+    "saludo": MENSAJE_ESPERADO.saludo,
+    "detalle": MENSAJE_ESPERADO.detalle,
+}
 
 
 @dataclass
@@ -157,7 +161,7 @@ def test_camino_feliz_con_cliente_boto3_y_stubber(
         "ContactFlowId": CONTACT_FLOW_ID,
         "InstanceId": INSTANCE_ID,
         "SourcePhoneNumber": ORIGEN,
-        "Attributes": {"mensaje": SSML_ESPERADO},
+        "Attributes": ATRIBUTOS_ESPERADOS,
     }
     with Stubber(boto) as stubber:
         stubber.add_response(
@@ -179,8 +183,11 @@ def test_llama_al_familiar_con_el_mensaje_del_caso(cliente: ClienteFalso) -> Non
 
     (llamada,) = cliente.llamadas
     assert llamada["DestinationPhoneNumber"] == DESTINO
-    assert llamada["Attributes"]["mensaje"] == SSML_ESPERADO
-    assert "112" in SSML_ESPERADO
+    assert llamada["Attributes"] == ATRIBUTOS_ESPERADOS
+    assert NOMBRE_FAMILIAR in MENSAJE_ESPERADO.saludo
+    assert NOMBRE_PERSONA not in MENSAJE_ESPERADO.saludo
+    assert "pulse 1" in MENSAJE_ESPERADO.saludo
+    assert "112" in MENSAJE_ESPERADO.detalle
 
 
 def test_llamadas_desactivadas_devuelve_503_sin_leer_body(
@@ -611,7 +618,9 @@ def test_logs_de_rechazo_registran_codigo_sin_datos_del_cliente(
 def test_logs_de_excepcion_inesperada_no_incluyen_str_de_la_excepcion(
     cliente: ClienteFalso, salida_logs: io.StringIO
 ) -> None:
-    cliente.fallar_con(RuntimeError(f"sentinela-fuga {DESTINO} {SSML_ESPERADO}"))
+    cliente.fallar_con(
+        RuntimeError(f"sentinela-fuga {DESTINO} {MENSAJE_ESPERADO.detalle}")
+    )
 
     lanzar(evento())
 

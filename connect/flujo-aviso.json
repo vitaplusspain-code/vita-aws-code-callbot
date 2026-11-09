@@ -6,8 +6,10 @@
     "ActionMetadata": {
       "4b1c7e2a-1d3f-4c5a-9b8e-7f6a5d4c3b2a": { "Position": { "x": 200, "y": 40 } },
       "8e2d6f1b-3a4c-4e5d-8f7a-1b2c3d4e5f6a": { "Position": { "x": 480, "y": 40 } },
-      "2c9a4b7d-6e1f-4a3b-8c5d-9e0f1a2b3c4d": { "Position": { "x": 780, "y": 40 } },
-      "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f": { "Position": { "x": 1060, "y": 200 } }
+      "a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d": { "Position": { "x": 780, "y": 40 } },
+      "2c9a4b7d-6e1f-4a3b-8c5d-9e0f1a2b3c4d": { "Position": { "x": 1080, "y": 40 } },
+      "b7e2d1c3-4f5a-4b6c-9d8e-1f2a3b4c5d6e": { "Position": { "x": 780, "y": 360 } },
+      "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f": { "Position": { "x": 1360, "y": 200 } }
     }
   },
   "Actions": [
@@ -33,7 +35,39 @@
       "Identifier": "8e2d6f1b-3a4c-4e5d-8f7a-1b2c3d4e5f6a",
       "Type": "GetParticipantInput",
       "Parameters": {
-        "SSML": "$.Attributes.mensaje",
+        "SSML": "$.Attributes.saludo",
+        "StoreInput": "False",
+        "InputTimeLimitSeconds": "8"
+      },
+      "Transitions": {
+        "NextAction": "b7e2d1c3-4f5a-4b6c-9d8e-1f2a3b4c5d6e",
+        "Conditions": [
+          {
+            "NextAction": "a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+            "Condition": { "Operator": "Equals", "Operands": ["1"] }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "b7e2d1c3-4f5a-4b6c-9d8e-1f2a3b4c5d6e",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "b7e2d1c3-4f5a-4b6c-9d8e-1f2a3b4c5d6e",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "Type": "GetParticipantInput",
+      "Parameters": {
+        "SSML": "$.Attributes.detalle",
         "StoreInput": "False",
         "InputTimeLimitSeconds": "8"
       },
@@ -41,7 +75,7 @@
         "NextAction": "2c9a4b7d-6e1f-4a3b-8c5d-9e0f1a2b3c4d",
         "Conditions": [
           {
-            "NextAction": "8e2d6f1b-3a4c-4e5d-8f7a-1b2c3d4e5f6a",
+            "NextAction": "a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
             "Condition": { "Operator": "Equals", "Operands": ["1"] }
           }
         ],
@@ -66,6 +100,22 @@
       "Type": "MessageParticipant",
       "Parameters": {
         "Text": "Gracias. Hasta luego."
+      },
+      "Transitions": {
+        "NextAction": "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f",
+        "Errors": [
+          {
+            "NextAction": "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "b7e2d1c3-4f5a-4b6c-9d8e-1f2a3b4c5d6e",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "No hemos recibido la confirmación. Disculpe las molestias. Hasta luego."
       },
       "Transitions": {
         "NextAction": "6f3e8d2c-9b1a-4d7e-a5f6-3c4b5a6d7e8f",

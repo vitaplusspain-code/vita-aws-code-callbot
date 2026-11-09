@@ -2,59 +2,55 @@ import re
 
 import pytest
 
-from core.aviso import Caso
-from core.casos import PLANTILLAS, texto_del_caso
+from core.casos import FRASES_CASOS
+from core.motivos import texto_detalle
+from core.tipos import Caso
 
 PERSONA = "Abuela Prueba"
-FAMILIAR = "Familiar Prueba"
+PROHIBIDAS = r"\b(dosis|mg|tome|tomar|deje de|diagnóstic\w*|ibuprofeno)\b"
 
 
-def test_hay_plantilla_para_cada_caso() -> None:
-    assert set(PLANTILLAS) == set(Caso)
+def _detalle(caso: Caso, persona: str = PERSONA) -> str:
+    return texto_detalle(caso.value, persona, frases=FRASES_CASOS)
+
+
+def test_hay_frase_para_cada_caso() -> None:
+    assert set(FRASES_CASOS) == {c.value for c in Caso}
 
 
 def test_el_catalogo_es_inmutable() -> None:
     with pytest.raises(TypeError):
-        PLANTILLAS[Caso.SUENO_IRREGULAR] = "otro"  # type: ignore[index]
+        FRASES_CASOS["x"] = "otro"  # type: ignore[index]
 
 
 @pytest.mark.parametrize("caso", list(Caso))
-@pytest.mark.parametrize(
-    "fragmento",
-    ["asistente automático", "VitaPlus", "112", "no es una emergencia", "pulse 1"],
-)
-def test_cada_texto_cumple_los_guardarrailes(caso: Caso, fragmento: str) -> None:
-    texto = texto_del_caso(caso, PERSONA, FAMILIAR)
-
-    assert fragmento in texto
+@pytest.mark.parametrize("fragmento", ["no es una emergencia", "112", "pulse 1"])
+def test_cada_detalle_cumple_los_guardarrailes(caso: Caso, fragmento: str) -> None:
+    assert fragmento in _detalle(caso)
 
 
 @pytest.mark.parametrize("caso", list(Caso))
-def test_los_nombres_se_sustituyen_y_no_quedan_llaves(caso: Caso) -> None:
-    texto = texto_del_caso(caso, PERSONA, FAMILIAR)
+def test_el_nombre_se_sustituye_y_no_quedan_llaves(caso: Caso) -> None:
+    detalle = _detalle(caso)
 
-    assert PERSONA in texto
-    assert FAMILIAR in texto
-    assert "{" not in texto
-    assert "}" not in texto
+    assert PERSONA in detalle
+    assert "{" not in detalle
+    assert "}" not in detalle
 
 
 @pytest.mark.parametrize("caso", list(Caso))
-def test_ningun_texto_da_consejos_medicos(caso: Caso) -> None:
-    texto = texto_del_caso(caso, PERSONA, FAMILIAR).lower()
-
-    prohibidas = r"\b(dosis|mg|tome|tomar|deje de|diagnóstic\w*|ibuprofeno)\b"
-    assert re.search(prohibidas, texto) is None
+def test_ningun_detalle_da_consejos_medicos(caso: Caso) -> None:
+    assert re.search(PROHIBIDAS, _detalle(caso).lower()) is None
 
 
-def test_un_nombre_con_llaves_no_rompe_la_plantilla() -> None:
-    texto = texto_del_caso(Caso.SIN_ACTIVIDAD_HOY, "{persona}", "{0}")
-
-    assert "{persona}" in texto
-    assert "{0}" in texto
+@pytest.mark.parametrize("frase", list(FRASES_CASOS.values()))
+def test_las_frases_solo_usan_el_marcador_persona(frase: str) -> None:
+    assert set(re.findall(r"\{[^}]*\}", frase)) == {"{persona}"}
 
 
-def test_cada_caso_tiene_un_texto_distinto() -> None:
-    textos = {texto_del_caso(c, PERSONA, FAMILIAR) for c in Caso}
+def test_un_nombre_con_llaves_no_rompe_la_frase() -> None:
+    assert "{persona}" in _detalle(Caso.SIN_ACTIVIDAD_HOY, "{persona}")
 
-    assert len(textos) == len(Caso)
+
+def test_cada_caso_tiene_un_detalle_distinto() -> None:
+    assert len({_detalle(c) for c in Caso}) == len(Caso)
