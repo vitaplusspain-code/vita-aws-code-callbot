@@ -1,38 +1,31 @@
-"""Catálogo de textos por caso, con los guardarraíles de la decisión 9."""
+"""Frases de los casos de la demo de la fase 1, con los guardarraíles de la decisión 9.
 
+Cada frase es el principio del detalle de la llamada; el cierre (contactar,
+112, repetir) lo añade `core.motivos.texto_detalle`. Son avisos que no son
+urgentes, así que cada frase lo dice. Desaparece con el aviso de alerta.
+"""
+
+from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.tipos import Caso
 
-_INTRODUCCION = (
-    "Hola {familiar}. Le llama el asistente automático de VitaPlus. "
-    "Este aviso no es una emergencia. "
-)
-_CIERRE = (
-    " Le sugerimos que contacte con {persona}. "
-    "Si cree que hay una urgencia, llame al 112. "
-    "Para repetir el mensaje, pulse 1."
-)
+__all__ = ["FRASES_CASOS"]
 
-PLANTILLAS = MappingProxyType(
+_NO_EMERGENCIA = "Este aviso no es una emergencia. "
+
+FRASES_CASOS: Mapping[str, str] = MappingProxyType(
     {
-        Caso.MEDICACION_7_DIAS: (
-            _INTRODUCCION + "El dispensador indica que {persona} lleva siete días sin "
-            "registrar la toma de su medicación." + _CIERRE
+        Caso.MEDICACION_7_DIAS.value: (
+            _NO_EMERGENCIA + "El dispensador indica que {persona} lleva siete días "
+            "sin registrar la toma de su medicación."
         ),
-        Caso.SIN_ACTIVIDAD_HOY: (
-            _INTRODUCCION
-            + "Hoy no se ha detectado actividad en casa de {persona}."
-            + _CIERRE
+        Caso.SIN_ACTIVIDAD_HOY.value: (
+            _NO_EMERGENCIA + "Hoy no se ha detectado actividad en casa de {persona}."
         ),
-        Caso.SUENO_IRREGULAR: (
-            _INTRODUCCION + "Hemos observado un patrón de sueño irregular en {persona} "
-            "durante las últimas noches." + _CIERRE
+        Caso.SUENO_IRREGULAR.value: (
+            _NO_EMERGENCIA + "Hemos observado un patrón de sueño irregular en "
+            "{persona} durante las últimas noches."
         ),
     }
 )
-
-
-def texto_del_caso(caso: Caso, persona: str, familiar: str) -> str:
-    """Devuelve el texto del caso con los nombres sustituidos."""
-    return PLANTILLAS[caso].format(persona=persona, familiar=familiar)

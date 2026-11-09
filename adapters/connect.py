@@ -15,10 +15,12 @@ from botocore.exceptions import (
 )
 
 from core.errores import ErrorConfiguracion, ErrorConnect
+from core.mensaje import MensajeAviso
 from core.telefono import es_telefono_e164
 
 __all__ = [
-    "ATRIBUTO_MENSAJE",
+    "ATRIBUTO_DETALLE",
+    "ATRIBUTO_SALUDO",
     "CODIGOS_AWS_CONOCIDOS",
     "CONFIG_CONNECT",
     "LONGITUD_MAXIMA_ATRIBUTO",
@@ -40,11 +42,13 @@ CONFIG_CONNECT = Config(
     retries={"total_max_attempts": 1, "mode": "standard"},
 )
 
-# Atributo de contacto con el SSML; el flujo lo lee como `$.Attributes.mensaje`.
-ATRIBUTO_MENSAJE = "mensaje"
+# Atributos de contacto con el SSML de cada parte; el flujo los lee como
+# `$.Attributes.saludo` y `$.Attributes.detalle` (decisión 37).
+ATRIBUTO_SALUDO = "saludo"
+ATRIBUTO_DETALLE = "detalle"
 
 # Límite de los valores de `Attributes` en el modelo de botocore (32767),
-# aplicado aquí en bytes UTF-8 por prudencia.
+# aplicado aquí a la suma de las dos partes, en bytes UTF-8, por prudencia.
 LONGITUD_MAXIMA_ATRIBUTO = 32767
 
 # Errores del modelo de botocore de StartOutboundVoiceContact, más los
@@ -75,7 +79,7 @@ class _ClienteConnect(Protocol):
 
 
 class ConnectAdapter:
-    """Pide a Amazon Connect una llamada saliente de voz."""
+    """Pide a Amazon Connect una llamada saliente de voz (implementa `CanalAviso`)."""
 
     def __init__(
         self,
@@ -117,7 +121,7 @@ class ConnectAdapter:
             entorno[_VAR_INSTANCE], entorno[_VAR_FLUJO], entorno[_VAR_ORIGEN]
         )
 
-    def iniciar_llamada(self, destino: str, mensaje_ssml: str) -> str:
+    def iniciar_llamada(self, destino: str, mensaje: MensajeAviso) -> str:
         """Inicia la llamada y devuelve el `ContactId`.
 
         El llamador DEBE aplicar `ListaBlanca` antes: el adaptador solo valida
@@ -127,7 +131,7 @@ class ConnectAdapter:
         """
         if not es_telefono_e164(destino):
             raise ErrorConnect("El teléfono de destino no es válido.")
-        if not 0 < len(mensaje_ssml.encode("utf-8")) <= LONGITUD_MAXIMA_ATRIBUTO:
+        if not _tamano_valido(mensaje):
             raise ErrorConnect("El mensaje está vacío o supera el límite de Connect.")
         try:
             respuesta = self._cliente.start_outbound_voice_contact(
@@ -135,16 +139,27 @@ class ConnectAdapter:
                 ContactFlowId=self._contact_flow_id,
                 InstanceId=self._instance_id,
                 SourcePhoneNumber=self._numero_origen,
-                Attributes={ATRIBUTO_MENSAJE: mensaje_ssml},
+                Attributes={
+                    ATRIBUTO_SALUDO: mensaje.saludo,
+                    ATRIBUTO_DETALLE: mensaje.detalle,
+                },
             )
         except (ClientError, BotoCoreError) as error:
-            mensaje = _traducir(error)
+            motivo = _traducir(error)
         else:
             contacto = respuesta.get("ContactId")
             if isinstance(contacto, str) and contacto:
                 return contacto
-            mensaje = "Connect no devolvió el identificador del contacto."
-        raise ErrorConnect(mensaje)
+            motivo = "Connect no devolvió el identificador del contacto."
+        raise ErrorConnect(motivo)
+
+
+def _tamano_valido(mensaje: MensajeAviso) -> bool:
+    """Las dos partes tienen texto y juntas caben en el límite de Connect."""
+    tamanos = [
+        len(parte.encode("utf-8")) for parte in (mensaje.saludo, mensaje.detalle)
+    ]
+    return all(tamanos) and sum(tamanos) <= LONGITUD_MAXIMA_ATRIBUTO
 
 
 def _codigo_conocido(error: ClientError | BotoCoreError) -> str | None:

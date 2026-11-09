@@ -22,7 +22,7 @@ from core.errores import (
     TelefonoNoPermitido,
 )
 from core.lista_blanca import ListaBlanca
-from core.mensaje import construir_mensaje
+from core.mensaje import construir_mensaje_caso
 from core.telefono import enmascarar_telefono
 from handlers.config import (
     lista_blanca_desde_entorno,
@@ -120,7 +120,9 @@ def _lanzar(evento: object) -> dict[str, Any]:
     telefono = persona.familiar.telefono
     if not dependencias.lista_blanca.permite(telefono):
         raise TelefonoNoPermitido("Teléfono fuera de la lista blanca.")
-    mensaje = construir_mensaje(aviso.caso, persona.nombre, persona.familiar.nombre)
+    mensaje = construir_mensaje_caso(
+        aviso.caso, persona.nombre, persona.familiar.nombre
+    )
     contact_id = dependencias.connect.iniciar_llamada(telefono, mensaje)
     logger.info(
         "llamada_iniciada",
