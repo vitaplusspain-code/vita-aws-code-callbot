@@ -12,7 +12,9 @@ def test_paquetes_de_la_arquitectura_hexagonal_se_importan(paquete: str) -> None
     assert modulo.__doc__
 
 
-@pytest.mark.parametrize("modulo", ["conversar", "puertos_checkin", "checkin"])
+@pytest.mark.parametrize(
+    "modulo", ["conversar", "puertos_checkin", "checkin", "lanzador"]
+)
 def test_el_nucleo_de_la_conversacion_no_importa_aws_ni_capas_externas(
     modulo: str,
 ) -> None:
