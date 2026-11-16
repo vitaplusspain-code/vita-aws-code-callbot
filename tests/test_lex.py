@@ -12,6 +12,7 @@ from core.checkin import EstadoCheckin, Turno
 from core.checkin_guion import TEXTOS, Paso, Trato
 
 CALL_ID = "0b6c1f0e-1111-4222-8333-444455556666"
+CONTACTO = "5f0a9c2e-7777-4888-9999-aaaabbbbcccc"
 
 
 def _evento(**cambios: Any) -> dict[str, Any]:
@@ -20,7 +21,7 @@ def _evento(**cambios: Any) -> dict[str, Any]:
         "invocationSource": "DialogCodeHook",
         "inputMode": "Speech",
         "inputTranscript": "me encuentro bien",
-        "sessionId": "sesion-1",
+        "sessionId": CONTACTO,
         "bot": {"localeId": "es_ES"},
         "sessionState": {
             "sessionAttributes": {"call_id": CALL_ID},
@@ -47,7 +48,8 @@ def test_parsea_un_evento_normal() -> None:
         call_id=CALL_ID,
         texto="me encuentro bien",
         atributos={"call_id": CALL_ID},
-        session_id="sesion-1",
+        session_id=CONTACTO,
+        contacto_id=CONTACTO,
     )
 
 
@@ -58,6 +60,22 @@ def test_parsea_un_evento_minimo() -> None:
     assert entrada.texto == ""
     assert entrada.atributos == {}
     assert entrada.session_id == ""
+    assert entrada.contacto_id == ""
+
+
+def test_el_contacto_sale_del_session_id_en_minusculas() -> None:
+    entrada = parsear_evento(_evento(sessionId=CONTACTO.upper()))
+
+    assert entrada.contacto_id == CONTACTO
+
+
+@pytest.mark.parametrize(
+    "session_id", ["", "sesion-1", CONTACTO + "x", f" {CONTACTO}", "1' OR '1'='1", 7]
+)
+def test_un_session_id_que_no_es_un_contacto_valido_cuenta_como_ausente(
+    session_id: object,
+) -> None:
+    assert parsear_evento(_evento(sessionId=session_id)).contacto_id == ""
 
 
 def test_el_session_id_se_acota() -> None:
@@ -185,7 +203,7 @@ def test_solo_devuelve_call_id_y_las_claves_propias_y_las_nuestras_mandan() -> N
         "call_id": CALL_ID,
         "otra": "valor",
         "checkin_paso": "animo_hoy",
-        "x-amz-lex:audio:start-timeout-ms": "1",
+        "x-amz-lex:audio:start-timeout-ms:Conversacion:respuesta": "1",
     }
     turno = _turno(Paso.COMIDA)
 
@@ -218,9 +236,11 @@ def test_no_modifica_los_atributos_de_entrada() -> None:
 
 
 def test_tiempos_de_voz_para_personas_mayores() -> None:
-    assert sorted(TIEMPOS_VOZ.values()) == ["1200", "6000"]
-    assert TIEMPOS_VOZ["x-amz-lex:audio:start-timeout-ms"] == "6000"
-    assert TIEMPOS_VOZ["x-amz-lex:audio:end-timeout-ms"] == "1200"
+    # Atributos de sesión de voz de Lex V2: llevan sufijo de intent y de slot.
+    assert TIEMPOS_VOZ == {
+        "x-amz-lex:audio:start-timeout-ms:Conversacion:respuesta": "6000",
+        "x-amz-lex:audio:end-timeout-ms:Conversacion:respuesta": "1200",
+    }
 
 
 def test_no_hace_eco_de_atributos_ajenos_aunque_sean_enormes() -> None:

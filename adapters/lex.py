@@ -27,11 +27,12 @@ _MAX_SESSION_ID = 100
 # `call_id` es un UUID; cualquier otra cosa se trata como ausente.
 _UUID = re.compile(r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
-# TODO-verificar: nombres exactos de los atributos de voz de Lex V2 (la forma
-# por intent y slot, `...:<intent>:<slot>`, no está comprobada). Único sitio.
+# Atributos de sesión de voz de Lex V2 (por defecto 4000 y 600 ms), con el
+# sufijo `:<intent>:<slot>`. Fuente: docs.aws.amazon.com/lexv2/latest/dg/
+# session-attribs-speech.html. Único sitio.
 TIEMPOS_VOZ: Mapping[str, str] = {
-    "x-amz-lex:audio:start-timeout-ms": "6000",  # silencio inicial
-    "x-amz-lex:audio:end-timeout-ms": "1200",  # fin de frase
+    f"x-amz-lex:audio:start-timeout-ms:{_INTENT}:{_SLOT}": "6000",  # silencio inicial
+    f"x-amz-lex:audio:end-timeout-ms:{_INTENT}:{_SLOT}": "1200",  # fin de frase
 }
 
 
@@ -43,6 +44,7 @@ class EntradaLex:
     texto: str = field(repr=False)
     atributos: Mapping[str, str]
     session_id: str = ""
+    contacto_id: str = ""
 
 
 def _mapa(valor: object) -> Mapping[str, Any]:
@@ -60,6 +62,11 @@ def _call_id_valido(valor: object) -> str:
     return ""
 
 
+def _contacto_valido(valor: object) -> str:
+    """El ContactId de Connect (UUID) en minúsculas; si no, cadena vacía."""
+    return _call_id_valido(valor).lower()
+
+
 def parsear_evento(evento: object) -> EntradaLex:
     """Extrae la entrada de un evento de Lex ignorando lo que no conoce."""
     estado = _mapa(_mapa(evento).get("sessionState"))
@@ -73,6 +80,9 @@ def parsear_evento(evento: object) -> EntradaLex:
         texto=_texto(_mapa(evento).get("inputTranscript")),
         atributos=atributos,
         session_id=_texto(_mapa(evento).get("sessionId"))[:_MAX_SESSION_ID],
+        # Con Connect, el `sessionId` de Lex es el ContactId; no lo controla quien
+        # habla (a diferencia de los sessionAttributes). Ver afinado-post-mvp.md.
+        contacto_id=_contacto_valido(_mapa(evento).get("sessionId")),
     )
 
 
