@@ -16,7 +16,7 @@ def test_devuelve_nombre_y_trato_del_entorno() -> None:
         {"DEMO_PERSONA_NOMBRE": "Marisol", "DEMO_TRATO": "tu"}
     )
 
-    datos = contexto.datos(CALL_ID)
+    datos = contexto.datos(CALL_ID, "c")
 
     assert datos is not None
     assert datos.nombre == "Marisol"
@@ -26,7 +26,7 @@ def test_devuelve_nombre_y_trato_del_entorno() -> None:
 def test_el_trato_por_defecto_es_usted() -> None:
     contexto = ContextoEnMemoria.desde_entorno({"DEMO_PERSONA_NOMBRE": "Marisol"})
 
-    datos = contexto.datos(CALL_ID)
+    datos = contexto.datos(CALL_ID, "c")
 
     assert datos is not None
     assert datos.trato is Trato.USTED
@@ -36,7 +36,7 @@ def test_el_trato_por_defecto_es_usted() -> None:
 def test_sin_call_id_no_hay_datos(call_id: str) -> None:
     contexto = ContextoEnMemoria.desde_entorno({"DEMO_PERSONA_NOMBRE": "Marisol"})
 
-    assert contexto.datos(call_id) is None
+    assert contexto.datos(call_id, "c") is None
 
 
 @pytest.mark.parametrize(
@@ -61,4 +61,4 @@ def test_configuracion_invalida_nombra_la_variable_sin_su_valor(
 def test_el_registro_sin_persistencia_acepta_turnos() -> None:
     turno = Turno(estado=EstadoCheckin(Paso.FIN), texto_a_decir="")
 
-    assert RegistroSinPersistencia().guardar_turno(CALL_ID, turno) is None
+    assert RegistroSinPersistencia().guardar_turno(CALL_ID, "c", turno) is None

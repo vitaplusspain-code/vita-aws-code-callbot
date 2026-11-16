@@ -23,6 +23,7 @@ from core.checkin_guion import TEXTOS, Trato
 from core.conversar import ServicioConversacion, turno_de_cierre_error
 from core.errores import ErrorConfiguracion
 from core.interprete import InterpreteReglas
+from handlers.config import aurora_configurada
 
 __all__ = ["handler", "limpiar_cache"]
 
@@ -50,7 +51,16 @@ _CLOSE_FIJO: dict[str, Any] = {
 
 @functools.cache
 def _servicio() -> ServicioConversacion:
-    """Crea el servicio en la primera petición (no al importar)."""
+    """Crea el servicio en la primera petición (no al importar).
+
+    Con las variables `DB_*` usa Aurora; sin ellas, la memoria (demo local).
+    """
+    if aurora_configurada(os.environ):
+        # Import perezoso: sin Aurora (demo local) no se carga el adaptador.
+        from adapters.aurora_checkin import AuroraCheckin
+
+        aurora = AuroraCheckin.desde_entorno(os.environ)
+        return ServicioConversacion(aurora, aurora, InterpreteReglas())
     return ServicioConversacion(
         contexto=ContextoEnMemoria.desde_entorno(os.environ),
         registro=RegistroSinPersistencia(),
@@ -105,7 +115,9 @@ def _atender(evento: object) -> dict[str, Any]:
     entrada = parsear_evento(evento)
     servicio = _servicio_registrado()
     try:
-        turno = servicio.responder(entrada.call_id, entrada.atributos, entrada.texto)
+        turno = servicio.responder(
+            entrada.call_id, entrada.contacto_id, entrada.atributos, entrada.texto
+        )
     except Exception as error:
         logger.error("fallo_de_turno", extra={"tipo": type(error).__name__})
         raise
