@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 import handlers.lanzar_llamada as modulo
-from core.aviso import TAMANO_MAXIMO_CUERPO, parsear_aviso_json
+from core.aviso import (
+    TAMANO_MAXIMO_CUERPO,
+    AvisoAlerta,
+    parsear_aviso_json,
+    parsear_cuerpo_json,
+)
 from core.tipos import Caso
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -65,3 +70,45 @@ def test_contrato_documenta_cada_caso(contrato: str, caso: Caso) -> None:
 
 def test_contrato_documenta_el_tamano_maximo(contrato: str) -> None:
     assert f"{TAMANO_MAXIMO_CUERPO} bytes" in contrato
+
+
+EVENTO_ALERTA = RAIZ / "events" / "aviso-alerta.json"
+
+
+def test_evento_alerta_lleva_un_aviso_de_alerta_valido() -> None:
+    evento = json.loads(EVENTO_ALERTA.read_text(encoding="utf-8"))
+
+    aviso = parsear_cuerpo_json(evento["body"])
+
+    assert evento["httpMethod"] == "POST"
+    assert evento["path"] == "/avisos"
+    assert isinstance(aviso, AvisoAlerta)
+
+
+def test_contrato_documenta_la_forma_nueva_y_el_202(contrato: str) -> None:
+    assert "`alert_id`" in contrato
+    assert "202" in contrato
+    assert '{"estado": "recibido"}' in contrato
+
+
+def _seccion(contrato: str, titulo: str) -> str:
+    inicio = contrato.index(titulo)
+    fin = contrato.find("\n## ", inicio + 1)
+    return contrato[inicio : fin if fin != -1 else None]
+
+
+def test_contrato_explica_que_la_demo_exige_demo_activa(contrato: str) -> None:
+    seccion = _seccion(contrato, "### Cuerpo de demo")
+
+    assert "DEMO_ACTIVA=true" in seccion
+    assert "apagada por defecto" in seccion
+
+
+def test_reintentos_separa_alert_id_y_demo(contrato: str) -> None:
+    seccion = _seccion(contrato, "## Reintentos")
+
+    assert "`alert_id`" in seccion
+    assert "429" in seccion
+    assert "reserva atómica" in seccion
+    assert "demo" in seccion
+    assert "duplicadas" in seccion
