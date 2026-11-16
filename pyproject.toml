@@ -13,7 +13,7 @@ extend-exclude = [".aws-sam"]
 select = ["E", "W", "F", "I", "N", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "adapters", "handlers"]
+known-first-party = ["core", "adapters", "handlers", "simulador"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -21,7 +21,7 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers"
 
 [tool.coverage.run]
-source = ["core", "adapters", "handlers"]
+source = ["core", "adapters", "handlers", "simulador"]
 branch = true
 
 [tool.coverage.report]

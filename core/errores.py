@@ -65,3 +65,21 @@ class LlamadasDesactivadas(ErrorCallbot):
     """Las llamadas están desactivadas por configuración (interruptor general)."""
 
     codigo = "llamadas_desactivadas"
+
+
+class EstadoInvalido(ErrorCallbot):
+    """El estado de la conversación que llega de Lex está roto o manipulado."""
+
+    codigo = "estado_invalido"
+
+
+class NombreInvalido(ErrorCallbot):
+    """El nombre de la persona no es válido para leerlo en la llamada."""
+
+    codigo = "nombre_invalido"
+
+
+class TratoInvalido(ErrorCallbot):
+    """La forma de tratamiento (usted o tú) no es válida."""
+
+    codigo = "trato_invalido"

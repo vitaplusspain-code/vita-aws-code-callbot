@@ -40,3 +40,14 @@ pytest --cov=core --cov=adapters --cov=handlers --cov-fail-under=80
 ```
 
 El estilo es PEP 8, comprobado con ruff (configuración en `pyproject.toml`).
+
+## Simulador de la conversación diaria
+
+Para probar el guion de la conversación con la persona mayor sin AWS ni red, desde la raíz del repo:
+
+```bash
+.venv/Scripts/python -m simulador                          # Carmen, trato de usted
+.venv/Scripts/python -m simulador --nombre Luis --trato tu
+```
+
+Imprime lo que diría el callbot, lee tus respuestas y, al terminar, muestra las observaciones que se guardarían y la señal de riesgo si la hay. `Ctrl+C` o fin de entrada salen sin error. También admite entrada por tubería (una respuesta por línea).

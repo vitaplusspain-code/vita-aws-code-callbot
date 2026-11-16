@@ -11,6 +11,7 @@ from core.errores import (
     LlamadasDesactivadas,
     PersonaNoEncontrada,
     TelefonoNoPermitido,
+    TratoInvalido,
 )
 
 
@@ -26,6 +27,7 @@ from core.errores import (
         (DatosInvalidos, "datos_invalidos"),
         (ErrorConfiguracion, "error_configuracion"),
         (LlamadasDesactivadas, "llamadas_desactivadas"),
+        (TratoInvalido, "trato_invalido"),
     ],
 )
 def test_cada_error_tiene_su_codigo_y_hereda_de_la_base(
