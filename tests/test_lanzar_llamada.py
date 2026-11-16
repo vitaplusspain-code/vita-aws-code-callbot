@@ -31,6 +31,7 @@ INSTANCE_ID = "11111111-2222-3333-4444-555555555555"
 CONTACT_FLOW_ID = "66666666-7777-8888-9999-000000000000"
 ENTORNO = {
     "LLAMADAS_ACTIVAS": "true",
+    "DEMO_ACTIVA": "true",
     "CONNECT_INSTANCE_ID": INSTANCE_ID,
     "CONNECT_CONTACT_FLOW_ID": CONTACT_FLOW_ID,
     "CONNECT_NUMERO_ORIGEN": ORIGEN,
@@ -681,3 +682,35 @@ def test_el_logger_usa_el_servicio_callbot(
 
 def test_origen_de_una_excepcion_sin_traza_es_desconocido() -> None:
     assert modulo._origen(RuntimeError("nunca lanzada")) == "desconocido"
+
+
+@pytest.mark.parametrize("valor", [None, "", "false", "1", "yes"])
+def test_demo_apagada_devuelve_400_fijo_sin_crear_dependencias(
+    cliente: ClienteFalso, monkeypatch: pytest.MonkeyPatch, valor: str | None
+) -> None:
+    if valor is None:
+        monkeypatch.delenv("DEMO_ACTIVA")
+    else:
+        monkeypatch.setenv("DEMO_ACTIVA", valor)
+
+    def no_crear() -> None:
+        raise AssertionError("la demo apagada no debe crear dependencias")
+
+    no_crear.cache_clear = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setattr(modulo, "_dependencias", no_crear)
+
+    respuesta = lanzar(evento())
+
+    assert respuesta["statusCode"] == 400
+    assert codigo_de(respuesta) == "aviso_invalido"
+    assert cuerpo_de(respuesta)["error"]["mensaje"] == "El aviso no es válido."
+    assert cliente.llamadas == []
+
+
+def test_demo_encendida_con_mayusculas_y_espacios_funciona(
+    cliente: ClienteFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEMO_ACTIVA", " TRUE ")
+
+    assert lanzar(evento())["statusCode"] == 200
+    assert len(cliente.llamadas) == 1

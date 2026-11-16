@@ -1,12 +1,17 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from core.aviso import (
     TAMANO_MAXIMO_CUERPO,
     Aviso,
+    AvisoAlerta,
     Caso,
     parsear_aviso,
+    parsear_aviso_alerta,
     parsear_aviso_json,
+    parsear_cuerpo_json,
 )
 from core.errores import AvisoInvalido
 
@@ -220,3 +225,89 @@ def test_parsear_aviso_json_no_encadena_la_excepcion_original(
 
     assert info.value.__cause__ is None
     assert info.value.__context__ is None
+
+
+ALERT_ID = "0b6f1c1e-4a52-4d0e-9d6a-1f2b3c4d5e6f"
+
+
+def test_parsea_un_aviso_de_alerta_y_normaliza_el_uuid() -> None:
+    aviso = parsear_aviso_alerta({"alert_id": ALERT_ID.upper()})
+
+    assert aviso == AvisoAlerta(alert_id=ALERT_ID)
+
+
+@pytest.mark.parametrize(
+    "datos",
+    [
+        {"alert_id": "no-es-uuid"},
+        {"alert_id": 5},
+        {"alert_id": None},
+        {"alert_id": ALERT_ID + "\n"},
+        {"alert_id": ALERT_ID, "extra": 1},
+        {},
+        [],
+        "texto",
+        None,
+    ],
+)
+def test_aviso_de_alerta_invalido(datos: object) -> None:
+    with pytest.raises(AvisoInvalido) as info:
+        parsear_aviso_alerta(datos)
+
+    assert "no-es-uuid" not in str(info.value)
+
+
+def test_aviso_de_alerta_con_campo_extra_no_refleja_la_clave() -> None:
+    with pytest.raises(AvisoInvalido) as info:
+        parsear_aviso_alerta({"alert_id": ALERT_ID, "SENTINELA": 1})
+
+    assert "SENTINELA" not in str(info.value)
+
+
+def test_cuerpo_con_alert_id_es_aviso_de_alerta() -> None:
+    cuerpo = json.dumps({"alert_id": ALERT_ID})
+
+    assert parsear_cuerpo_json(cuerpo) == AvisoAlerta(alert_id=ALERT_ID)
+
+
+def test_cuerpo_con_persona_y_caso_es_aviso_demo() -> None:
+    cuerpo = json.dumps({"persona_id": "demo-01", "caso": "sueno_irregular"})
+
+    assert parsear_cuerpo_json(cuerpo) == Aviso(
+        persona_id="demo-01", caso=Caso.SUENO_IRREGULAR
+    )
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        {"alert_id": ALERT_ID, "persona_id": "demo-01", "caso": "sueno_irregular"},
+        {"alert_id": ALERT_ID, "caso": "sueno_irregular"},
+        {"alert_id": ALERT_ID, "extra": 1},
+        {"alert_id": "no-es-uuid"},
+        {"persona_id": "demo-01"},
+        {"ALERT_ID": ALERT_ID},
+        {},
+        [ALERT_ID],
+        None,
+    ],
+)
+def test_cuerpo_mezclado_o_desconocido_es_invalido(cuerpo: object) -> None:
+    with pytest.raises(AvisoInvalido):
+        parsear_cuerpo_json(json.dumps(cuerpo))
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [None, b"\xff", "no json", '{"alert_id": "x", "alert_id": "y"}', "[" * 1000],
+)
+def test_cuerpo_ilegible_es_invalido(cuerpo: str | bytes | None) -> None:
+    with pytest.raises(AvisoInvalido):
+        parsear_cuerpo_json(cuerpo)
+
+
+def test_cuerpo_demasiado_grande_es_invalido() -> None:
+    cuerpo = json.dumps({"alert_id": ALERT_ID, "x": "a" * TAMANO_MAXIMO_CUERPO})
+
+    with pytest.raises(AvisoInvalido, match="demasiado grande"):
+        parsear_cuerpo_json(cuerpo)

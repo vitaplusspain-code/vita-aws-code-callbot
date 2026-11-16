@@ -12,21 +12,35 @@ from typing import Any
 
 from aws_lambda_powertools import Logger
 
+from adapters.aurora import AuroraAdapter
 from adapters.connect import ConnectAdapter
 from adapters.persona_en_memoria import PersonaEnMemoria
-from core.aviso import TAMANO_MAXIMO_CUERPO, parsear_aviso_json
+from core.avisar import ServicioAviso
+from core.aviso import (
+    TAMANO_MAXIMO_CUERPO,
+    Aviso,
+    AvisoAlerta,
+    parsear_cuerpo_json,
+)
 from core.errores import (
     AvisoInvalido,
+    DatosInvalidos,
+    ErrorBaseDatos,
     ErrorCallbot,
+    ErrorConfiguracion,
+    ErrorConnect,
     LlamadasDesactivadas,
+    PersonaNoEncontrada,
     TelefonoNoPermitido,
 )
 from core.lista_blanca import ListaBlanca
 from core.mensaje import construir_mensaje_caso
 from core.telefono import enmascarar_telefono
 from handlers.config import (
+    demo_activa,
     lista_blanca_desde_entorno,
     llamadas_activas,
+    reglas_desde_entorno,
 )
 
 __all__ = ["handler", "limpiar_cache"]
@@ -41,11 +55,12 @@ _MAXIMO_BASE64 = (TAMANO_MAXIMO_CUERPO // 3 + 1) * 4
 # código -> (estado HTTP, texto fijo). Nunca se devuelve `str(e)`.
 _RESPUESTAS_ERROR: Mapping[str, tuple[int, str]] = {
     LlamadasDesactivadas.codigo: (503, "El servicio de llamadas no está activo."),
-    "aviso_invalido": (400, "El aviso no es válido."),
-    "persona_no_encontrada": (400, "La persona indicada no existe."),
-    "telefono_no_permitido": (403, "No se permite llamar a ese teléfono."),
-    "error_connect": (500, "No se pudo iniciar la llamada."),
-    "error_configuracion": (500, "El servicio no está bien configurado."),
+    AvisoInvalido.codigo: (400, "El aviso no es válido."),
+    PersonaNoEncontrada.codigo: (400, "La persona indicada no existe."),
+    TelefonoNoPermitido.codigo: (403, "No se permite llamar a ese teléfono."),
+    ErrorBaseDatos.codigo: (500, "No se pudo registrar el aviso."),
+    ErrorConnect.codigo: (500, "No se pudo iniciar la llamada."),
+    ErrorConfiguracion.codigo: (500, "El servicio no está bien configurado."),
     CODIGO_INTERNO: (500, "Error interno."),
 }
 
@@ -70,9 +85,22 @@ def _dependencias() -> _Dependencias:
     )
 
 
+@functools.cache
+def _servicio_aviso() -> ServicioAviso:
+    """Crea el servicio de la ruta `alert_id` en la primera petición."""
+    # TODO: al borrar la demo, un solo ConnectAdapter
+    return ServicioAviso(
+        repositorio=AuroraAdapter.desde_entorno(os.environ),
+        canal=ConnectAdapter.desde_entorno(os.environ),
+        lista_blanca=lista_blanca_desde_entorno(os.environ),
+        reglas=reglas_desde_entorno(os.environ),
+    )
+
+
 def limpiar_cache() -> None:
     """Olvida las dependencias creadas (para tests)."""
     _dependencias.cache_clear()
+    _servicio_aviso.cache_clear()
 
 
 def _respuesta(estado: int, datos: Mapping[str, Any]) -> dict[str, Any]:
@@ -114,7 +142,34 @@ def _lanzar(evento: object) -> dict[str, Any]:
     """Flujo principal; las excepciones las traduce `handler`."""
     if not llamadas_activas(os.environ):
         raise LlamadasDesactivadas("Llamadas desactivadas por configuración.")
-    aviso = parsear_aviso_json(_cuerpo(evento))
+    aviso = parsear_cuerpo_json(_cuerpo(evento))
+    if isinstance(aviso, AvisoAlerta):
+        return _avisar_alerta(aviso)
+    if not demo_activa(os.environ):
+        raise AvisoInvalido("La demo está apagada.")
+    return _lanzar_demo(aviso)
+
+
+def _avisar_alerta(aviso: AvisoAlerta) -> dict[str, Any]:
+    """Ruta de VitaPlus: misma respuesta sea cual sea el desenlace."""
+    try:
+        desenlace = _servicio_aviso().avisar(aviso.alert_id)
+    except DatosInvalidos:
+        # Datos mal formados: reintentar no sirve y el cliente no debe notarlo.
+        logger.error(
+            "aviso_fallido",
+            extra={"codigo": DatosInvalidos.codigo, "alert_id": aviso.alert_id},
+        )
+        return _respuesta(202, {"estado": "recibido"})
+    logger.info(
+        "aviso_procesado",
+        extra={"resultado": desenlace.resultado.value, "alert_id": aviso.alert_id},
+    )
+    return _respuesta(202, {"estado": "recibido"})
+
+
+def _lanzar_demo(aviso: Aviso) -> dict[str, Any]:
+    """Ruta de demo: persona y caso en memoria (se borrará)."""
     dependencias = _dependencias()
     persona = dependencias.personas.obtener(aviso.persona_id)
     telefono = persona.familiar.telefono
