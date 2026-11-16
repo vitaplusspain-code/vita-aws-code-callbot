@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any, Protocol, Self
 
@@ -25,6 +26,7 @@ __all__ = [
     "VAR_SECRETO",
     "AuroraAdapter",
     "ClienteDataApi",
+    "ErrorUnicidad",
     "param_texto",
     "param_texto_o_nulo",
     "param_uuid",
@@ -121,6 +123,9 @@ VARIABLES_AURORA = (VAR_CLUSTER, VAR_SECRETO, VAR_BASE)
 _MENSAJE_FALLO = "Fallo al acceder a la base de datos."
 _MENSAJE_RESPUESTA = "Respuesta inesperada de la base de datos."
 _UNA_FILA = 1
+# SQLState de una violación de unicidad y nombre de la restricción en el mensaje.
+_SQLSTATE_UNICIDAD = "23505"
+_PATRON_RESTRICCION = re.compile(r'unique constraint "([A-Za-z0-9_]+)"')
 
 
 class _ClienteRdsData(Protocol):
@@ -129,6 +134,19 @@ class _ClienteRdsData(Protocol):
     def execute_statement(self, **kwargs: Any) -> Mapping[str, Any]:
         """Ejecuta una sentencia SQL por la Data API."""
         ...
+
+
+class ErrorUnicidad(ErrorBaseDatos):
+    """La base rechazó una fila por una restricción de unicidad (SQLState 23505).
+
+    Solo guarda el nombre de la restricción (no es un dato personal); el mensaje
+    de la base no se conserva.
+    """
+
+    def __init__(self, mensaje: str, restriccion: str) -> None:
+        """Guarda el mensaje fijo y la restricción (vacía si no se conoce)."""
+        super().__init__(mensaje)
+        self.restriccion = restriccion
 
 
 class _FilaConsentimiento(BaseModel):
@@ -210,6 +228,9 @@ class ClienteDataApi:
             )
         except (ClientError, BotoCoreError) as error:
             _registrar_fallo_aws(error)
+            restriccion = _restriccion_violada(error)
+            if restriccion is not None:
+                raise ErrorUnicidad(_MENSAJE_FALLO, restriccion) from None
             # `from None`: el contexto llevaría el ARN y el SQL de la petición.
             raise ErrorBaseDatos(_MENSAJE_FALLO) from None
 
@@ -220,6 +241,11 @@ class ClienteDataApi:
         if isinstance(filas, int) and not isinstance(filas, bool):
             return filas
         raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+
+    def _exigir_una_fila(self, sql: str, parametros: list[dict[str, Any]]) -> None:
+        """Ejecuta un UPDATE y exige que toque exactamente una fila."""
+        if self._escribir(sql, parametros) != _UNA_FILA:
+            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
 
     def _leer(self, sql: str, parametros: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Ejecuta una consulta y devuelve sus filas como diccionarios."""
@@ -293,17 +319,12 @@ class AuroraAdapter(ClienteDataApi):
             param_texto("contact_id", contact_id),
             param_uuid("call_id", call_id),
         ]
-        self._actualizar_una_fila(SQL_REGISTRAR_CONTACTO, parametros)
+        self._exigir_una_fila(SQL_REGISTRAR_CONTACTO, parametros)
 
     def registrar_fallo(self, call_id: str, codigo: str) -> None:
         """Marca la llamada como fallida con el código del error."""
         parametros = [param_texto("codigo", codigo), param_uuid("call_id", call_id)]
-        self._actualizar_una_fila(SQL_REGISTRAR_FALLO, parametros)
-
-    def _actualizar_una_fila(self, sql: str, parametros: list[dict[str, Any]]) -> None:
-        """Ejecuta un UPDATE y exige que toque exactamente una fila."""
-        if self._escribir(sql, parametros) != _UNA_FILA:
-            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+        self._exigir_una_fila(SQL_REGISTRAR_FALLO, parametros)
 
 
 def validar[T: BaseModel](modelo: type[T], fila: dict[str, Any]) -> T:
@@ -323,3 +344,17 @@ def _registrar_fallo_aws(error: ClientError | BotoCoreError) -> None:
     logger.warning(
         "aurora_fallo", extra={"tipo": type(error).__name__, "codigo": codigo}
     )
+
+
+def _restriccion_violada(error: ClientError | BotoCoreError) -> str | None:
+    """Nombre de la restricción si el error es una violación de unicidad.
+
+    Devuelve `None` si no lo es y `""` si lo es pero no se lee el nombre.
+    """
+    if not isinstance(error, ClientError):
+        return None
+    mensaje = error.response.get("Error", {}).get("Message")
+    if not isinstance(mensaje, str) or _SQLSTATE_UNICIDAD not in mensaje:
+        return None
+    encontrada = _PATRON_RESTRICCION.search(mensaje)
+    return encontrada.group(1) if encontrada else ""
