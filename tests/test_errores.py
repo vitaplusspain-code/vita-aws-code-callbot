@@ -2,6 +2,7 @@ import pytest
 
 from core.errores import (
     AvisoInvalido,
+    DatosInvalidos,
     ErrorBaseDatos,
     ErrorCallbot,
     ErrorCanal,
@@ -22,6 +23,7 @@ from core.errores import (
         (ErrorCanal, "error_canal"),
         (ErrorConnect, "error_connect"),
         (ErrorBaseDatos, "error_base_datos"),
+        (DatosInvalidos, "datos_invalidos"),
         (ErrorConfiguracion, "error_configuracion"),
         (LlamadasDesactivadas, "llamadas_desactivadas"),
     ],
@@ -42,3 +44,7 @@ def test_la_base_tiene_un_codigo_generico() -> None:
 
 def test_el_error_de_connect_es_un_error_del_canal_de_aviso() -> None:
     assert issubclass(ErrorConnect, ErrorCanal)
+
+
+def test_datos_invalidos_es_un_error_de_base_de_datos() -> None:
+    assert issubclass(DatosInvalidos, ErrorBaseDatos)

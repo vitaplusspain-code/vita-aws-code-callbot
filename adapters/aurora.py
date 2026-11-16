@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
 from core.alerta import Alerta
 from core.destinatario import Destinatario
-from core.errores import ErrorBaseDatos, ErrorConfiguracion
+from core.errores import DatosInvalidos, ErrorBaseDatos, ErrorConfiguracion
 from core.puertos import Reserva
 
 __all__ = [
@@ -189,7 +189,7 @@ class AuroraAdapter:
         if not filas:
             return None
         if len(filas) > 1:
-            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+            raise DatosInvalidos(_MENSAJE_RESPUESTA)
         return _validar(Alerta, filas[0])
 
     def tiene_consentimiento(self, person_id: str, permiso: str) -> bool:
@@ -208,7 +208,7 @@ class AuroraAdapter:
         if not filas:
             return None
         if len(filas) > 1:
-            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+            raise DatosInvalidos(_MENSAJE_RESPUESTA)
         return _validar(Destinatario, filas[0])
 
     def reservar_llamada(self, reserva: Reserva) -> bool:
@@ -288,7 +288,7 @@ def _validar[T: BaseModel](modelo: type[T], fila: dict[str, Any]) -> T:
     try:
         return modelo.model_validate(fila)
     except ValidationError:
-        raise ErrorBaseDatos(_MENSAJE_RESPUESTA) from None
+        raise DatosInvalidos(_MENSAJE_RESPUESTA) from None
 
 
 def _registrar_fallo_aws(error: ClientError | BotoCoreError) -> None:

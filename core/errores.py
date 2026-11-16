@@ -49,6 +49,12 @@ class ErrorBaseDatos(ErrorCallbot):
     codigo = "error_base_datos"
 
 
+class DatosInvalidos(ErrorBaseDatos):
+    """Aurora devolvió datos mal formados (no es un fallo de infraestructura)."""
+
+    codigo = "datos_invalidos"
+
+
 class ErrorConfiguracion(ErrorCallbot):
     """La configuración de la aplicación es incorrecta."""
 
