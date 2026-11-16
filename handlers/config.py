@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from adapters.aurora import VARIABLES_AURORA
 from core.alerta import ReglasAviso
 from core.errores import ErrorConfiguracion
 from core.lista_blanca import ListaBlanca
@@ -14,6 +15,7 @@ __all__ = [
     "VAR_LISTA_BLANCA",
     "VAR_LLAMADAS_ACTIVAS",
     "VAR_REGLAS_SIEMPRE",
+    "aurora_configurada",
     "demo_activa",
     "lista_blanca_desde_entorno",
     "llamadas_activas",
@@ -38,6 +40,15 @@ def llamadas_activas(entorno: Mapping[str, str]) -> bool:
     Falla cerrado: cualquier otro valor, o la ausencia, es desactivado.
     """
     return entorno.get(VAR_LLAMADAS_ACTIVAS, "").strip().lower() == "true"
+
+
+def aurora_configurada(entorno: Mapping[str, str]) -> bool:
+    """Indica si hay alguna variable `DB_*` con valor (se quiere usar Aurora).
+
+    Con alguna basta: si faltan otras, el adaptador falla nombrándolas, en vez
+    de caer en silencio a la memoria.
+    """
+    return any(entorno.get(variable, "").strip() for variable in VARIABLES_AURORA)
 
 
 def demo_activa(entorno: Mapping[str, str]) -> bool:
