@@ -25,6 +25,7 @@ from adapters.connect import (
     ConnectAdapter,
 )
 from core.errores import ErrorCanal, ErrorConfiguracion, ErrorConnect
+from core.lista_blanca import ListaBlanca
 from core.mensaje import MensajeAviso
 from core.puertos import CanalAviso
 
@@ -497,3 +498,92 @@ def test_sin_stubber_la_red_bloqueada_corta_la_llamada() -> None:
         cliente.start_outbound_voice_contact(**PARAMETROS)
 
     assert not isinstance(info.value, ClientError)
+
+
+# --- Check-in: solo el call_id como atributo ----------------------------------
+
+CALL_ID = "44444444-4444-4444-4444-444444444444"
+
+
+def test_checkin_inicia_la_llamada_pasando_solo_el_call_id() -> None:
+    cliente = _cliente()
+    with Stubber(cliente) as stubber:
+        stubber.add_response(
+            "start_outbound_voice_contact",
+            {"ContactId": "contacto-checkin"},
+            expected_params={**PARAMETROS, "Attributes": {"call_id": CALL_ID}},
+        )
+
+        contacto = _adaptador(cliente).iniciar_llamada_checkin(DESTINO, CALL_ID)
+
+        stubber.assert_no_pending_responses()
+    assert contacto == "contacto-checkin"
+
+
+def test_checkin_traduce_el_fallo_de_connect() -> None:
+    cliente = _ClienteQueFalla(_error_aws("LimitExceededException"))
+
+    with pytest.raises(ErrorConnect, match="LimitExceededException"):
+        _adaptador(cliente).iniciar_llamada_checkin(DESTINO, CALL_ID)
+
+
+@pytest.mark.parametrize(
+    ("destino", "call_id"),
+    [("600000001", CALL_ID), (DESTINO, "no-es-uuid"), (DESTINO, "")],
+)
+def test_checkin_rechaza_destino_o_call_id_invalidos_sin_llamar(
+    destino: str, call_id: str
+) -> None:
+    cliente = _ClienteQueFalla(_error_aws(None))
+
+    with pytest.raises(ErrorConnect):
+        _adaptador(cliente).iniciar_llamada_checkin(destino, call_id)
+
+    assert cliente.llamadas == 0
+
+
+# --- Check-in: defensa en profundidad con la lista blanca ----------------------
+
+
+def test_checkin_con_lista_blanca_rechaza_un_destino_fuera_sin_llamar() -> None:
+    cliente = _ClienteQueFalla(_error_aws(None))
+    lista = ListaBlanca(frozenset({"+34600000002"}))
+    adaptador = ConnectAdapter(
+        cliente, INSTANCE_ID, CONTACT_FLOW_ID, ORIGEN, lista_blanca=lista
+    )
+
+    with pytest.raises(ErrorConnect) as info:
+        adaptador.iniciar_llamada_checkin(DESTINO, CALL_ID)
+
+    assert cliente.llamadas == 0
+    assert DESTINO not in str(info.value)
+
+
+def test_checkin_con_lista_blanca_llama_a_un_destino_permitido() -> None:
+    cliente = _cliente()
+    lista = ListaBlanca(frozenset({DESTINO}))
+    adaptador = ConnectAdapter(
+        cliente, INSTANCE_ID, CONTACT_FLOW_ID, ORIGEN, lista_blanca=lista
+    )
+    with Stubber(cliente) as stubber:
+        stubber.add_response(
+            "start_outbound_voice_contact",
+            {"ContactId": "c-1"},
+            expected_params={**PARAMETROS, "Attributes": {"call_id": CALL_ID}},
+        )
+
+        assert adaptador.iniciar_llamada_checkin(DESTINO, CALL_ID) == "c-1"
+
+
+def test_desde_entorno_acepta_la_lista_blanca(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        boto3, "client", lambda *a, **k: _ClienteQueFalla(_error_aws(None))
+    )
+    lista = ListaBlanca(frozenset({"+34600000002"}))
+
+    adaptador = ConnectAdapter.desde_entorno(ENTORNO, lista)
+
+    with pytest.raises(ErrorConnect):
+        adaptador.iniciar_llamada_checkin(DESTINO, CALL_ID)
