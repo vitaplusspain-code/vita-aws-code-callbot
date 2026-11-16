@@ -40,16 +40,18 @@ class ContextoFijo:
     def __init__(self, datos: DatosConversacion | None) -> None:
         self.datos_fijos = datos
         self.consultas: list[str] = []
+        self.contactos: list[str] = []
 
-    def datos(self, call_id: str) -> DatosConversacion | None:
+    def datos(self, call_id: str, contacto_id: str) -> DatosConversacion | None:
         self.consultas.append(call_id)
+        self.contactos.append(contacto_id)
         return self.datos_fijos
 
 
 class ContextoQueLanza:
     """Contexto con la base de datos caída."""
 
-    def datos(self, call_id: str) -> DatosConversacion | None:
+    def datos(self, call_id: str, contacto_id: str) -> DatosConversacion | None:
         raise ErrorBaseDatos("Aurora caída")
 
 
@@ -58,13 +60,15 @@ class RegistroEnMemoria:
 
     def __init__(self) -> None:
         self.turnos: list[tuple[str, Turno]] = []
+        self.contactos: list[str] = []
 
-    def guardar_turno(self, call_id: str, turno: Turno) -> None:
+    def guardar_turno(self, call_id: str, contacto_id: str, turno: Turno) -> None:
         self.turnos.append((call_id, turno))
+        self.contactos.append(contacto_id)
 
 
 class RegistroQueLanza:
     """Registro que falla siempre al guardar."""
 
-    def guardar_turno(self, call_id: str, turno: Turno) -> None:
+    def guardar_turno(self, call_id: str, contacto_id: str, turno: Turno) -> None:
         raise ErrorBaseDatos("no se pudo guardar")
