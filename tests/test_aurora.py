@@ -15,7 +15,7 @@ import adapters.aurora as modulo_aurora
 from adapters.aurora import CONFIG_AURORA, AuroraAdapter
 from core.alerta import Alerta
 from core.destinatario import Destinatario
-from core.errores import ErrorBaseDatos, ErrorConfiguracion
+from core.errores import DatosInvalidos, ErrorBaseDatos, ErrorConfiguracion
 from core.puertos import RepositorioAvisos, Reserva
 
 CLUSTER = "arn:aws:rds:eu-west-1:000000000000:cluster:vita-dev-callbot-db"
@@ -285,7 +285,7 @@ def test_alerta_abierta_con_varias_filas_es_error() -> None:
             [FILA_ALERTA, FILA_ALERTA],
         )
 
-        with pytest.raises(ErrorBaseDatos) as info:
+        with pytest.raises(DatosInvalidos) as info:
             _adaptador(cliente).alerta_abierta(ALERT_ID)
 
     assert str(info.value) == MENSAJE_RESPUESTA
@@ -313,7 +313,7 @@ def test_alerta_abierta_con_fila_invalida_no_filtra_datos(
             [{**FILA_ALERTA, **cambio}],
         )
 
-        with pytest.raises(ErrorBaseDatos) as info:
+        with pytest.raises(DatosInvalidos) as info:
             _adaptador(cliente).alerta_abierta(ALERT_ID)
 
     assert str(info.value) == MENSAJE_RESPUESTA
@@ -411,7 +411,7 @@ def test_contacto_principal_con_varias_filas_es_error() -> None:
             [FILA_CONTACTO, FILA_CONTACTO],
         )
 
-        with pytest.raises(ErrorBaseDatos) as info:
+        with pytest.raises(DatosInvalidos) as info:
             _adaptador(cliente).contacto_principal(PERSON_ID)
 
     assert str(info.value) == MENSAJE_RESPUESTA
@@ -438,7 +438,7 @@ def test_contacto_principal_con_fila_invalida_no_filtra_datos(
             [{**FILA_CONTACTO, **cambio}],
         )
 
-        with pytest.raises(ErrorBaseDatos) as info:
+        with pytest.raises(DatosInvalidos) as info:
             _adaptador(cliente).contacto_principal(PERSON_ID)
 
     assert str(info.value) == MENSAJE_RESPUESTA
@@ -568,6 +568,7 @@ def test_lectura_con_respuesta_rota_es_error(respuesta: dict[str, Any]) -> None:
     with pytest.raises(ErrorBaseDatos) as info:
         adaptador.alerta_abierta(ALERT_ID)
 
+    assert not isinstance(info.value, DatosInvalidos)
     assert str(info.value) == MENSAJE_RESPUESTA
 
 
@@ -694,3 +695,12 @@ def test_los_parametros_del_sql_estan_todos_declarados() -> None:
         sql = _constantes_sql()[nombre]
         for parametro in parametros:
             assert f":{parametro['name']}" in sql
+
+
+def test_fallo_de_infraestructura_no_es_datos_invalidos() -> None:
+    error = ClientError({}, "ExecuteStatement")
+
+    with pytest.raises(ErrorBaseDatos) as info:
+        _adaptador(_ClienteQueFalla(error)).alerta_abierta(ALERT_ID)
+
+    assert not isinstance(info.value, DatosInvalidos)
