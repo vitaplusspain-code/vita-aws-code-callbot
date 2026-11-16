@@ -1,6 +1,7 @@
 """Adaptador de Amazon Connect: pide la llamada saliente con el mensaje."""
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any, Protocol, Self
 
@@ -15,10 +16,13 @@ from botocore.exceptions import (
 )
 
 from core.errores import ErrorConfiguracion, ErrorConnect
+from core.lista_blanca import ListaBlanca
 from core.mensaje import MensajeAviso
 from core.telefono import es_telefono_e164
+from core.tipos import PATRON_UUID
 
 __all__ = [
+    "ATRIBUTO_CALL_ID",
     "ATRIBUTO_DETALLE",
     "ATRIBUTO_SALUDO",
     "CODIGOS_AWS_CONOCIDOS",
@@ -46,6 +50,9 @@ CONFIG_CONNECT = Config(
 # `$.Attributes.saludo` y `$.Attributes.detalle` (decisión 37).
 ATRIBUTO_SALUDO = "saludo"
 ATRIBUTO_DETALLE = "detalle"
+# Atributo de contacto del check-in: el flujo lo lee como `$.Attributes.call_id`
+# y lo pasa a Lex como atributo de sesión `call_id` (ver `adapters/lex.py`).
+ATRIBUTO_CALL_ID = "call_id"
 
 # Límite de los valores de `Attributes` en el modelo de botocore (32767),
 # aplicado aquí a la suma de las dos partes, en bytes UTF-8, por prudencia.
@@ -65,6 +72,7 @@ CODIGOS_AWS_CONOCIDOS = (
     "AccessDeniedException",
 )
 
+_UUID = re.compile(PATRON_UUID)
 _VAR_INSTANCE = "CONNECT_INSTANCE_ID"
 _VAR_FLUJO = "CONNECT_CONTACT_FLOW_ID"
 _VAR_ORIGEN = "CONNECT_NUMERO_ORIGEN"
@@ -87,8 +95,12 @@ class ConnectAdapter:
         instance_id: str,
         contact_flow_id: str,
         numero_origen: str,
+        lista_blanca: ListaBlanca | None = None,
     ) -> None:
-        """Recibe el cliente de boto3 ya creado y la configuración de Connect."""
+        """Recibe el cliente de boto3 ya creado y la configuración de Connect.
+
+        Con `lista_blanca`, el check-in la vuelve a aplicar (defensa en profundidad).
+        """
         if not instance_id:
             raise ErrorConfiguracion("Falta instance_id de Connect.")
         if not contact_flow_id:
@@ -99,15 +111,24 @@ class ConnectAdapter:
         self._instance_id = instance_id
         self._contact_flow_id = contact_flow_id
         self._numero_origen = numero_origen
+        self._lista_blanca = lista_blanca
 
     @classmethod
-    def crear(cls, instance_id: str, contact_flow_id: str, numero_origen: str) -> Self:
+    def crear(
+        cls,
+        instance_id: str,
+        contact_flow_id: str,
+        numero_origen: str,
+        lista_blanca: ListaBlanca | None = None,
+    ) -> Self:
         """Crea el adaptador con un cliente real de Connect (`CONFIG_CONNECT`)."""
         cliente = boto3.client("connect", config=CONFIG_CONNECT)
-        return cls(cliente, instance_id, contact_flow_id, numero_origen)
+        return cls(cliente, instance_id, contact_flow_id, numero_origen, lista_blanca)
 
     @classmethod
-    def desde_entorno(cls, entorno: Mapping[str, str]) -> Self:
+    def desde_entorno(
+        cls, entorno: Mapping[str, str], lista_blanca: ListaBlanca | None = None
+    ) -> Self:
         """Crea el adaptador con las variables `CONNECT_*` de `entorno`.
 
         Lanza `ErrorConfiguracion` nombrando la variable, nunca su valor.
@@ -118,7 +139,10 @@ class ConnectAdapter:
         if not es_telefono_e164(entorno[_VAR_ORIGEN]):
             raise ErrorConfiguracion(f"La variable {_VAR_ORIGEN} no es válida.")
         return cls.crear(
-            entorno[_VAR_INSTANCE], entorno[_VAR_FLUJO], entorno[_VAR_ORIGEN]
+            entorno[_VAR_INSTANCE],
+            entorno[_VAR_FLUJO],
+            entorno[_VAR_ORIGEN],
+            lista_blanca,
         )
 
     def iniciar_llamada(self, destino: str, mensaje: MensajeAviso) -> str:
@@ -133,16 +157,33 @@ class ConnectAdapter:
             raise ErrorConnect("El teléfono de destino no es válido.")
         if not _tamano_valido(mensaje):
             raise ErrorConnect("El mensaje está vacío o supera el límite de Connect.")
+        atributos = {ATRIBUTO_SALUDO: mensaje.saludo, ATRIBUTO_DETALLE: mensaje.detalle}
+        return self._pedir_llamada(destino, atributos)
+
+    def iniciar_llamada_checkin(self, destino: str, call_id: str) -> str:
+        """Inicia la llamada del check-in y devuelve el `ContactId`.
+
+        Solo pasa el `call_id` (atributo `call_id`), nunca datos personales. Las
+        mismas garantías que `iniciar_llamada`: el llamador aplica la lista blanca
+        y, si se dio una al crear el adaptador, aquí se vuelve a aplicar.
+        """
+        if not es_telefono_e164(destino):
+            raise ErrorConnect("El teléfono de destino no es válido.")
+        if self._lista_blanca is not None and not self._lista_blanca.permite(destino):
+            raise ErrorConnect("El teléfono de destino no está permitido.")
+        if not _UUID.fullmatch(call_id):
+            raise ErrorConnect("El identificador de llamada no es válido.")
+        return self._pedir_llamada(destino, {ATRIBUTO_CALL_ID: call_id})
+
+    def _pedir_llamada(self, destino: str, atributos: dict[str, str]) -> str:
+        """Llama a `StartOutboundVoiceContact`; traduce los fallos de AWS."""
         try:
             respuesta = self._cliente.start_outbound_voice_contact(
                 DestinationPhoneNumber=destino,
                 ContactFlowId=self._contact_flow_id,
                 InstanceId=self._instance_id,
                 SourcePhoneNumber=self._numero_origen,
-                Attributes={
-                    ATRIBUTO_SALUDO: mensaje.saludo,
-                    ATRIBUTO_DETALLE: mensaje.detalle,
-                },
+                Attributes=atributos,
             )
         except (ClientError, BotoCoreError) as error:
             motivo = _traducir(error)
