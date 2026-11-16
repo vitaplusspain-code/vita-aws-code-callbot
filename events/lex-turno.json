@@ -3,7 +3,7 @@
   "invocationSource": "DialogCodeHook",
   "inputMode": "Speech",
   "responseContentType": "text/plain; charset=utf-8",
-  "sessionId": "00000000-ejemplo-sesion-lex",
+  "sessionId": "5f0a9c2e-7777-4888-9999-aaaabbbbcccc",
   "inputTranscript": "pues me encuentro bastante bien",
   "bot": {
     "id": "BOTIDEJEMPLO",

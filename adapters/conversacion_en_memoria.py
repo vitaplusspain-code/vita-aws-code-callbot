@@ -50,14 +50,14 @@ class ContextoEnMemoria:
             raise _invalida(_VAR_TRATO) from None
         return cls(DatosConversacion(nombre=nombre, trato=trato))
 
-    def datos(self, call_id: str) -> DatosConversacion | None:
-        """Los datos fijos, salvo que no haya `call_id`."""
+    def datos(self, call_id: str, contacto_id: str) -> DatosConversacion | None:
+        """Los datos fijos, salvo que no haya `call_id` (demo: ignora el contacto)."""
         return self._datos if call_id.strip() else None
 
 
 class RegistroSinPersistencia:
     """Implementa `RegistroCheckin` sin guardar nada (Aurora, en la fase 4)."""
 
-    def guardar_turno(self, call_id: str, turno: Turno) -> None:
+    def guardar_turno(self, call_id: str, contacto_id: str, turno: Turno) -> None:
         """Descarta el turno."""
         ...

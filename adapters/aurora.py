@@ -19,7 +19,16 @@ __all__ = [
     "CODIGOS_AWS_CONOCIDOS",
     "CONFIG_AURORA",
     "ESQUEMA",
+    "VARIABLES_AURORA",
+    "VAR_BASE",
+    "VAR_CLUSTER",
+    "VAR_SECRETO",
     "AuroraAdapter",
+    "ClienteDataApi",
+    "param_texto",
+    "param_texto_o_nulo",
+    "param_uuid",
+    "validar",
 ]
 
 logger = logging.getLogger(__name__)
@@ -103,9 +112,11 @@ SQL_REGISTRAR_FALLO = (
     "error_code = :codigo, ended_at = now() WHERE id = :call_id"
 )
 
-_VAR_CLUSTER = "DB_CLUSTER_ARN"
-_VAR_SECRETO = "DB_SECRET_ARN"
-_VAR_BASE = "DB_NAME"
+# Variables de entorno de la conexión: único sitio donde se nombran.
+VAR_CLUSTER = "DB_CLUSTER_ARN"
+VAR_SECRETO = "DB_SECRET_ARN"
+VAR_BASE = "DB_NAME"
+VARIABLES_AURORA = (VAR_CLUSTER, VAR_SECRETO, VAR_BASE)
 
 _MENSAJE_FALLO = "Fallo al acceder a la base de datos."
 _MENSAJE_RESPUESTA = "Respuesta inesperada de la base de datos."
@@ -128,18 +139,25 @@ class _FilaConsentimiento(BaseModel):
     granted: StrictBool
 
 
-def _uuid(nombre: str, valor: str) -> dict[str, Any]:
+def param_uuid(nombre: str, valor: str) -> dict[str, Any]:
     """Parámetro UUID con nombre."""
     return {"name": nombre, "typeHint": "UUID", "value": {"stringValue": valor}}
 
 
-def _texto(nombre: str, valor: str) -> dict[str, Any]:
+def param_texto(nombre: str, valor: str) -> dict[str, Any]:
     """Parámetro de texto con nombre."""
     return {"name": nombre, "value": {"stringValue": valor}}
 
 
-class AuroraAdapter:
-    """Guarda y lee los avisos en Aurora (implementa `RepositorioAvisos`)."""
+def param_texto_o_nulo(nombre: str, valor: str | None) -> dict[str, Any]:
+    """Parámetro de texto que puede ser NULL."""
+    if valor is None:
+        return {"name": nombre, "value": {"isNull": True}}
+    return param_texto(nombre, valor)
+
+
+class ClienteDataApi:
+    """Base de los adaptadores de Aurora: conexión y ejecución por la Data API."""
 
     def __init__(
         self,
@@ -172,77 +190,10 @@ class AuroraAdapter:
 
         Lanza `ErrorConfiguracion` nombrando la variable, nunca su valor.
         """
-        for variable in (_VAR_CLUSTER, _VAR_SECRETO, _VAR_BASE):
+        for variable in VARIABLES_AURORA:
             if not entorno.get(variable):
                 raise ErrorConfiguracion(f"Falta la variable {variable}.")
-        return cls.crear(
-            entorno[_VAR_CLUSTER], entorno[_VAR_SECRETO], entorno[_VAR_BASE]
-        )
-
-    def registrar_recepcion(self, alert_id: str) -> None:
-        """Apunta en `audit_log` que ha llegado un aviso de esa alerta."""
-        self._ejecutar(SQL_REGISTRAR_RECEPCION, [_uuid("alert_id", alert_id)])
-
-    def alerta_abierta(self, alert_id: str) -> Alerta | None:
-        """Devuelve la alerta si está abierta y su persona está en el callbot."""
-        filas = self._leer(SQL_ALERTA_ABIERTA, [_uuid("alert_id", alert_id)])
-        if not filas:
-            return None
-        if len(filas) > 1:
-            raise DatosInvalidos(_MENSAJE_RESPUESTA)
-        return _validar(Alerta, filas[0])
-
-    def tiene_consentimiento(self, person_id: str, permiso: str) -> bool:
-        """Indica si el último consentimiento de ese permiso está concedido."""
-        filas = self._leer(
-            SQL_CONSENTIMIENTO,
-            [_uuid("person_id", person_id), _texto("scope", permiso)],
-        )
-        if not filas:
-            return False
-        return _validar(_FilaConsentimiento, filas[0]).granted
-
-    def contacto_principal(self, person_id: str) -> Destinatario | None:
-        """Devuelve el contacto de aviso de prioridad 1, si recibe avisos."""
-        filas = self._leer(SQL_CONTACTO_PRINCIPAL, [_uuid("person_id", person_id)])
-        if not filas:
-            return None
-        if len(filas) > 1:
-            raise DatosInvalidos(_MENSAJE_RESPUESTA)
-        return _validar(Destinatario, filas[0])
-
-    def reservar_llamada(self, reserva: Reserva) -> bool:
-        """Crea la fila de la llamada; `False` si ya existía."""
-        alerta = reserva.alerta
-        parametros = [
-            _uuid("call_id", reserva.call_id),
-            _uuid("person_id", alerta.person_id),
-            _uuid("alert_id", alerta.alert_id),
-            _uuid("contact_id", reserva.destinatario.contacto_id),
-            _texto("rule_id", alerta.rule_id),
-            _texto("severity", alerta.severity),
-            _texto("phone", reserva.destinatario.telefono),
-            _texto("script_version", reserva.version_guion),
-        ]
-        escritas = self._escribir(SQL_RESERVAR_LLAMADA, parametros)
-        if escritas not in (0, _UNA_FILA):
-            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
-        return escritas == _UNA_FILA
-
-    def registrar_contacto(self, call_id: str, contact_id: str) -> None:
-        """Guarda el identificador del contacto que devolvió el canal."""
-        parametros = [_texto("contact_id", contact_id), _uuid("call_id", call_id)]
-        self._actualizar_una_fila(SQL_REGISTRAR_CONTACTO, parametros)
-
-    def registrar_fallo(self, call_id: str, codigo: str) -> None:
-        """Marca la llamada como fallida con el código del error."""
-        parametros = [_texto("codigo", codigo), _uuid("call_id", call_id)]
-        self._actualizar_una_fila(SQL_REGISTRAR_FALLO, parametros)
-
-    def _actualizar_una_fila(self, sql: str, parametros: list[dict[str, Any]]) -> None:
-        """Ejecuta un UPDATE y exige que toque exactamente una fila."""
-        if self._escribir(sql, parametros) != _UNA_FILA:
-            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+        return cls.crear(entorno[VAR_CLUSTER], entorno[VAR_SECRETO], entorno[VAR_BASE])
 
     def _ejecutar(
         self, sql: str, parametros: list[dict[str, Any]], **extra: Any
@@ -283,7 +234,79 @@ class AuroraAdapter:
         return filas
 
 
-def _validar[T: BaseModel](modelo: type[T], fila: dict[str, Any]) -> T:
+class AuroraAdapter(ClienteDataApi):
+    """Guarda y lee los avisos en Aurora (implementa `RepositorioAvisos`)."""
+
+    def registrar_recepcion(self, alert_id: str) -> None:
+        """Apunta en `audit_log` que ha llegado un aviso de esa alerta."""
+        self._ejecutar(SQL_REGISTRAR_RECEPCION, [param_uuid("alert_id", alert_id)])
+
+    def alerta_abierta(self, alert_id: str) -> Alerta | None:
+        """Devuelve la alerta si está abierta y su persona está en el callbot."""
+        filas = self._leer(SQL_ALERTA_ABIERTA, [param_uuid("alert_id", alert_id)])
+        if not filas:
+            return None
+        if len(filas) > 1:
+            raise DatosInvalidos(_MENSAJE_RESPUESTA)
+        return validar(Alerta, filas[0])
+
+    def tiene_consentimiento(self, person_id: str, permiso: str) -> bool:
+        """Indica si el último consentimiento de ese permiso está concedido."""
+        filas = self._leer(
+            SQL_CONSENTIMIENTO,
+            [param_uuid("person_id", person_id), param_texto("scope", permiso)],
+        )
+        if not filas:
+            return False
+        return validar(_FilaConsentimiento, filas[0]).granted
+
+    def contacto_principal(self, person_id: str) -> Destinatario | None:
+        """Devuelve el contacto de aviso de prioridad 1, si recibe avisos."""
+        filas = self._leer(SQL_CONTACTO_PRINCIPAL, [param_uuid("person_id", person_id)])
+        if not filas:
+            return None
+        if len(filas) > 1:
+            raise DatosInvalidos(_MENSAJE_RESPUESTA)
+        return validar(Destinatario, filas[0])
+
+    def reservar_llamada(self, reserva: Reserva) -> bool:
+        """Crea la fila de la llamada; `False` si ya existía."""
+        alerta = reserva.alerta
+        parametros = [
+            param_uuid("call_id", reserva.call_id),
+            param_uuid("person_id", alerta.person_id),
+            param_uuid("alert_id", alerta.alert_id),
+            param_uuid("contact_id", reserva.destinatario.contacto_id),
+            param_texto("rule_id", alerta.rule_id),
+            param_texto("severity", alerta.severity),
+            param_texto("phone", reserva.destinatario.telefono),
+            param_texto("script_version", reserva.version_guion),
+        ]
+        escritas = self._escribir(SQL_RESERVAR_LLAMADA, parametros)
+        if escritas not in (0, _UNA_FILA):
+            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+        return escritas == _UNA_FILA
+
+    def registrar_contacto(self, call_id: str, contact_id: str) -> None:
+        """Guarda el identificador del contacto que devolvió el canal."""
+        parametros = [
+            param_texto("contact_id", contact_id),
+            param_uuid("call_id", call_id),
+        ]
+        self._actualizar_una_fila(SQL_REGISTRAR_CONTACTO, parametros)
+
+    def registrar_fallo(self, call_id: str, codigo: str) -> None:
+        """Marca la llamada como fallida con el código del error."""
+        parametros = [param_texto("codigo", codigo), param_uuid("call_id", call_id)]
+        self._actualizar_una_fila(SQL_REGISTRAR_FALLO, parametros)
+
+    def _actualizar_una_fila(self, sql: str, parametros: list[dict[str, Any]]) -> None:
+        """Ejecuta un UPDATE y exige que toque exactamente una fila."""
+        if self._escribir(sql, parametros) != _UNA_FILA:
+            raise ErrorBaseDatos(_MENSAJE_RESPUESTA)
+
+
+def validar[T: BaseModel](modelo: type[T], fila: dict[str, Any]) -> T:
     """Valida la fila con pydantic sin filtrar su contenido al error."""
     try:
         return modelo.model_validate(fila)

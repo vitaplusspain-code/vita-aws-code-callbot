@@ -1,13 +1,16 @@
 import json
 import logging
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
+from botocore.exceptions import ClientError
 
 import handlers.conversacion as modulo
+from adapters.aurora_checkin import AuroraCheckin
 from core.checkin_guion import TEXTOS, Trato
 
 
@@ -199,7 +202,7 @@ def test_el_log_del_turno_trae_solo_los_campos_permitidos(
     assert registro.riesgo == "self_harm"
     assert registro.terminado is True
     assert registro.n_observaciones == 0
-    assert registro.session_id == "00000000-ejemplo-sesion-lex"
+    assert registro.session_id == "5f0a9c2e-7777-4888-9999-aaaabbbbcccc"
     assert registro.paso == "fin"
     assert registro.intentos == 0
     assert "vivir" not in str(registro.__dict__)
@@ -274,3 +277,176 @@ def test_los_logs_del_core_salen_por_el_logger_del_handler() -> None:
     nucleo = logging.getLogger("core")
 
     assert modulo.logger.registered_handler in nucleo.handlers
+
+
+# --- Aurora (fase 4) ----------------------------------------------------------
+
+
+CONTACTO_EVENTO = "5f0a9c2e-7777-4888-9999-aaaabbbbcccc"
+
+
+class _RdsFalso:
+    """Cliente de rds-data falso: lee la fila indicada y acepta toda escritura.
+
+    Solo reconoce el contacto `contacto`: con otro, ni lee ni escribe (como el
+    SQL real, que exige `connect_contact_id = :contacto_id`).
+    """
+
+    def __init__(self, filas: list[dict[str, str]]) -> None:
+        self.filas = filas
+        self.contacto = CONTACTO_EVENTO
+        self.sentencias: list[str] = []
+        self.parametros: list[dict[str, str]] = []
+        self.fallo: Exception | None = None
+
+    def execute_statement(self, **kwargs: Any) -> dict[str, Any]:
+        sql = kwargs["sql"]
+        self.sentencias.append(sql)
+        if self.fallo is not None:
+            raise self.fallo
+        parametros = {
+            p["name"]: p["value"]["stringValue"]
+            for p in kwargs["parameters"]
+            if "stringValue" in p["value"]
+        }
+        self.parametros.append(parametros)
+        propio = parametros.get("contacto_id") == self.contacto
+        if sql.startswith("SELECT"):
+            return {"formattedRecords": json.dumps(self.filas if propio else [])}
+        return {"numberOfRecordsUpdated": 1 if propio else 0}
+
+
+@pytest.fixture
+def rds(monkeypatch: pytest.MonkeyPatch) -> _RdsFalso:
+    falso = _RdsFalso([{"nombre": "Lucía", "trato": "tu"}])
+
+    def crear(cls: Any, cluster: str, secreto: str, base: str) -> Any:
+        return cls(falso, cluster, secreto, base)
+
+    monkeypatch.setattr(AuroraCheckin, "crear", classmethod(crear))
+    monkeypatch.setenv("DB_CLUSTER_ARN", "arn:cluster")
+    monkeypatch.setenv("DB_SECRET_ARN", "arn:secreto")
+    monkeypatch.setenv("DB_NAME", "vitaplus")
+    modulo.limpiar_cache()
+    return falso
+
+
+def test_con_aurora_configurada_el_nombre_sale_de_la_base(rds: _RdsFalso) -> None:
+    respuesta = modulo.handler(_evento("lex-inicio.json"), CONTEXTO)
+
+    assert "Lucía" in _mensaje(respuesta)
+    assert NOMBRE not in _mensaje(respuesta)
+    assert any(s.startswith("SELECT") for s in rds.sentencias)
+
+
+def test_con_aurora_configurada_se_guardan_las_observaciones(rds: _RdsFalso) -> None:
+    modulo.handler(_evento("lex-turno.json"), CONTEXTO)
+
+    assert any("callbot_observation" in s for s in rds.sentencias)
+    assert any("callbot_checkin" in s for s in rds.sentencias)
+
+
+def test_con_aurora_una_llamada_que_no_es_valida_cierra_con_error(
+    rds: _RdsFalso,
+) -> None:
+    rds.filas.clear()
+
+    respuesta = modulo.handler(_evento("lex-turno.json"), CONTEXTO)
+
+    assert _mensaje(respuesta) == TEXTOS[Trato.USTED].cierre_error
+    assert not any("callbot_observation" in s for s in rds.sentencias)
+
+
+def test_con_aurora_una_llamada_que_no_es_valida_atiende_el_riesgo(
+    rds: _RdsFalso,
+) -> None:
+    rds.filas.clear()
+    evento = _con_texto(_evento("lex-turno.json"), "me duele el pecho")
+
+    respuesta = modulo.handler(evento, CONTEXTO)
+
+    assert _mensaje(respuesta) == URGENCIA
+
+
+def test_con_aurora_a_medio_configurar_falla_cerrado_y_atiende_el_riesgo(
+    rds: _RdsFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DB_SECRET_ARN")
+    evento = _con_texto(_evento("lex-turno.json"), "me duele el pecho")
+
+    respuesta = modulo.handler(evento, CONTEXTO)
+
+    assert _mensaje(respuesta) == URGENCIA
+    assert rds.sentencias == []
+
+
+def test_con_aurora_el_contacto_del_evento_viaja_a_todas_las_sentencias(
+    rds: _RdsFalso,
+) -> None:
+    modulo.handler(_evento("lex-turno.json"), CONTEXTO)
+
+    assert len(rds.parametros) >= 3
+    assert {p["contacto_id"] for p in rds.parametros} == {CONTACTO_EVENTO}
+
+
+def test_con_aurora_un_call_id_de_otro_contacto_no_lee_ni_escribe(
+    rds: _RdsFalso,
+) -> None:
+    rds.contacto = "11111111-2222-4333-8444-555555555555"
+
+    respuesta = modulo.handler(_evento("lex-turno.json"), CONTEXTO)
+
+    assert _mensaje(respuesta) == TEXTOS[Trato.USTED].cierre_error
+    assert "Lucía" not in _mensaje(respuesta)
+    assert not any("callbot_observation" in s for s in rds.sentencias)
+
+
+def test_con_aurora_un_session_id_que_no_es_contacto_no_consulta_nada(
+    rds: _RdsFalso,
+) -> None:
+    evento = {**_evento("lex-turno.json"), "sessionId": "no-es-un-contacto"}
+
+    respuesta = modulo.handler(evento, CONTEXTO)
+
+    assert _mensaje(respuesta) == TEXTOS[Trato.USTED].cierre_error
+    assert not any("callbot_observation" in s for s in rds.sentencias)
+
+
+def test_con_aurora_los_logs_no_contienen_la_frase_ni_el_nombre(
+    rds: _RdsFalso,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Los logs del core salen por el handler de Powertools; aquí también a caplog.
+    nucleo = logging.getLogger("core")
+    monkeypatch.setattr(nucleo, "propagate", True)
+    caplog.set_level(logging.DEBUG)
+    turno = _con_texto(_evento("lex-turno.json"), f"bien, como {CENTINELA}")
+    urgencia = _con_texto(_evento("lex-turno.json"), f"me he caído con {CENTINELA}")
+
+    modulo.handler(_evento("lex-inicio.json"), CONTEXTO)
+    modulo.handler(turno, CONTEXTO)
+    rds.fallo = ClientError({"Error": {"Code": "ForbiddenException"}}, "x")
+    modulo.handler(urgencia, CONTEXTO)  # la base cae: se registra el fallo
+
+    salida = capsys.readouterr()
+    registros = " ".join(str(r.__dict__) for r in caplog.records)
+    todo = salida.out + salida.err + caplog.text + registros
+    assert "Lucía" not in todo
+    assert CENTINELA not in todo
+    assert "caído" not in todo
+    assert "riesgo_no_registrado" in todo
+    assert "arn:cluster" not in todo
+    assert "arn:secreto" not in todo
+
+
+def test_el_adaptador_de_aurora_no_se_carga_sin_aurora(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delitem(sys.modules, "adapters.aurora_checkin", raising=False)
+    modulo.limpiar_cache()
+
+    modulo.handler(_evento("lex-inicio.json"), CONTEXTO)
+
+    assert "adapters.aurora_checkin" not in sys.modules

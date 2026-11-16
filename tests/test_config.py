@@ -1,5 +1,7 @@
 import pytest
 
+import handlers.config as config
+from adapters.aurora import VARIABLES_AURORA
 from core.errores import ErrorConfiguracion
 from handlers.config import (
     VAR_ANTIGUEDAD_MAXIMA,
@@ -7,6 +9,7 @@ from handlers.config import (
     VAR_LISTA_BLANCA,
     VAR_LLAMADAS_ACTIVAS,
     VAR_REGLAS_SIEMPRE,
+    aurora_configurada,
     demo_activa,
     lista_blanca_desde_entorno,
     llamadas_activas,
@@ -150,3 +153,18 @@ def test_reglas_siempre_separa_por_comas_e_ignora_vacios() -> None:
 def test_reglas_siempre_invalida_es_error_de_configuracion() -> None:
     with pytest.raises(ErrorConfiguracion):
         reglas_desde_entorno({VAR_REGLAS_SIEMPRE: "a b\x00"})
+
+
+@pytest.mark.parametrize("variable", ["DB_CLUSTER_ARN", "DB_SECRET_ARN", "DB_NAME"])
+def test_aurora_configurada_si_hay_alguna_variable_de_aurora(variable: str) -> None:
+    assert aurora_configurada({variable: "x"}) is True
+
+
+@pytest.mark.parametrize("entorno", [{}, {"DB_NAME": ""}, {"DB_NAME": "  "}])
+def test_aurora_no_configurada_sin_variables_o_vacias(entorno: dict[str, str]) -> None:
+    assert aurora_configurada(entorno) is False
+
+
+def test_los_nombres_de_las_variables_de_aurora_son_los_del_adaptador() -> None:
+    assert config.VARIABLES_AURORA is VARIABLES_AURORA
+    assert VARIABLES_AURORA == ("DB_CLUSTER_ARN", "DB_SECRET_ARN", "DB_NAME")
