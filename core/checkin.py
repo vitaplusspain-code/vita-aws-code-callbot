@@ -34,7 +34,9 @@ __all__ = [
     "Observacion",
     "Turno",
     "avanzar",
+    "hay_estado",
     "iniciar",
+    "trato_o_usted",
     "turno_de_riesgo_sin_estado",
 ]
 
@@ -44,7 +46,8 @@ _CLAVE_PASO = "checkin_paso"
 _CLAVE_INTENTOS = "checkin_intentos"
 _MAX_FALLOS = 1  # fallos de una pregunta antes de pasar a la siguiente
 _INTENTOS_VALIDOS = {str(n): n for n in range(_MAX_FALLOS + 1)}
-_LONGITUD_MAXIMA_ENTRADA = 5000
+_LONGITUD_MAXIMA_ENTRADA = 5000  # solo para interpretar y guardar, no para el riesgo
+_PREFIJO_CLAVES = "checkin_"
 
 _VALORES_ENUM: dict[TipoRespuesta, frozenset[str]] = {
     TipoRespuesta.ANIMO: frozenset({"bien", "regular", "mal"}),
@@ -102,6 +105,15 @@ class EstadoCheckin:
         return cls(Paso(paso), _INTENTOS_VALIDOS[intentos])
 
 
+def hay_estado(atributos: Mapping[str, str]) -> bool:
+    """Indica si los atributos traen alguna clave `checkin_*`.
+
+    Si no trae ninguna, es una sesión nueva. Si trae alguna pero falta el paso,
+    `desde_atributos` lo rechaza como `EstadoInvalido`.
+    """
+    return any(clave.startswith(_PREFIJO_CLAVES) for clave in atributos)
+
+
 @dataclass(frozen=True)
 class Observacion:
     """Dato a guardar; lleva lo que dijo la persona, que es dato de salud."""
@@ -117,7 +129,7 @@ class Turno:
     """Resultado de un turno: qué decir, nuevo estado y qué guardar."""
 
     estado: EstadoCheckin
-    texto_a_decir: str
+    texto_a_decir: str = field(repr=False)
     observaciones: tuple[Observacion, ...] = ()
     senal_riesgo: SenalRiesgo | None = None
 
@@ -141,7 +153,8 @@ def _trato_valido(trato: Trato | str) -> Trato:
         raise TratoInvalido("El trato no es válido.") from None
 
 
-def _trato_o_usted(trato: Trato | str) -> Trato:
+def trato_o_usted(trato: Trato | str) -> Trato:
+    """Trato válido o, si no lo es, usted."""
     try:
         return _trato_valido(trato)
     except TratoInvalido:
@@ -155,9 +168,13 @@ def _nombre_o_nada(nombre: str) -> str | None:
         return None
 
 
-def _entrada(texto: object) -> str:
-    """Texto recibido: lo que no es `str` cuenta como vacío; se trunca."""
-    return texto[:_LONGITUD_MAXIMA_ENTRADA] if isinstance(texto, str) else ""
+def _como_texto(texto: object) -> str:
+    """Texto recibido completo: lo que no es `str` cuenta como vacío.
+
+    El detector de riesgo recibe el texto entero: una urgencia dicha al final
+    de una transcripción larga no debe perderse.
+    """
+    return texto if isinstance(texto, str) else ""
 
 
 def iniciar(nombre: str, trato: Trato) -> Turno:
@@ -217,10 +234,10 @@ def turno_de_riesgo_sin_estado(texto: str, trato: Trato) -> Turno | None:
     Para el handler de Lex cuando `desde_atributos` lanza `EstadoInvalido`:
     el riesgo se atiende igual.
     """
-    senal = detectar_riesgo(_entrada(texto))
+    senal = detectar_riesgo(_como_texto(texto))
     if senal is None:
         return None
-    return _turno_riesgo(senal, None, _trato_o_usted(trato))
+    return _turno_riesgo(senal, None, trato_o_usted(trato))
 
 
 def _decir(paso: Paso, trato: Trato, nombre: str, prefijo: str = "") -> str:
@@ -253,17 +270,17 @@ def avanzar(
     El detector de riesgo corre lo primero y siempre, también con la
     conversación terminada o con un nombre inválido.
     """
-    texto = _entrada(texto)
-    senal = detectar_riesgo(texto)
+    completo = _como_texto(texto)
+    senal = detectar_riesgo(completo)
     if senal is not None:
-        return _turno_riesgo(senal, _nombre_o_nada(nombre), _trato_o_usted(trato))
+        return _turno_riesgo(senal, _nombre_o_nada(nombre), trato_o_usted(trato))
     nombre = _nombre_valido(nombre)
     trato = _trato_valido(trato)
     if estado.terminado:
         return Turno(estado=estado, texto_a_decir="")
 
     pregunta = _PREGUNTAS[estado.paso]
-    limpio = limpiar_texto(texto)
+    limpio = limpiar_texto(completo[:_LONGITUD_MAXIMA_ENTRADA])
     valor = _interpretar(interprete, pregunta, limpio, trato)
     if valor is None and estado.intentos < _MAX_FALLOS:
         aviso = f"{TEXTOS[trato].no_entendido} "

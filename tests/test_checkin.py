@@ -5,9 +5,11 @@ from core.checkin import (
     Observacion,
     Turno,
     avanzar,
+    hay_estado,
     iniciar,
+    trato_o_usted,
 )
-from core.checkin_guion import VERSION_GUION_CHECKIN, Paso, Trato
+from core.checkin_guion import TEXTOS, VERSION_GUION_CHECKIN, Paso, Trato
 from core.errores import EstadoInvalido, NombreInvalido
 from core.interprete import InterpreteReglas
 from core.riesgo import TipoRiesgo
@@ -310,3 +312,56 @@ def test_atributos_manipulados_no_se_reflejan_en_el_error() -> None:
         EstadoCheckin.desde_atributos(atributos)
 
     assert "SECRETO" not in str(error.value)
+
+
+def test_hay_estado_detecta_la_clave_del_paso() -> None:
+    assert hay_estado({}) is False
+    assert hay_estado({"otra": "x"}) is False
+    assert hay_estado(EstadoCheckin(Paso.COMIDA).a_atributos()) is True
+    assert hay_estado({"checkin_paso": "basura"}) is True
+
+
+@pytest.mark.parametrize(
+    "atributos",
+    [
+        {"checkin_version": "checkin-v1"},
+        {"checkin_intentos": "0"},
+        {"checkin_version": "checkin-v1", "checkin_intentos": "0"},
+    ],
+)
+def test_claves_de_checkin_sin_paso_son_estado_invalido_no_sesion_nueva(
+    atributos: dict[str, str],
+) -> None:
+    assert hay_estado(atributos) is True
+    with pytest.raises(EstadoInvalido):
+        EstadoCheckin.desde_atributos(atributos)
+
+
+def test_repr_del_turno_no_expone_el_texto_a_decir() -> None:
+    turno = iniciar("Marisol", Trato.USTED)
+
+    assert "Marisol" not in repr(turno)
+
+
+@pytest.mark.parametrize("trato", list(Trato))
+def test_cierre_error_es_fijo_sin_nombre_y_remite_al_112(trato: Trato) -> None:
+    texto = TEXTOS[trato].cierre_error
+
+    assert "{" not in texto
+    assert "112" in texto
+    assert "024" in texto
+
+
+@pytest.mark.parametrize(
+    ("trato", "esperado"),
+    [
+        ("tu", Trato.TU),
+        (Trato.USTED, Trato.USTED),
+        ("vos", Trato.USTED),
+        ("", Trato.USTED),
+    ],
+)
+def test_trato_o_usted_cae_en_usted_si_no_es_valido(
+    trato: str, esperado: Trato
+) -> None:
+    assert trato_o_usted(trato) is esperado

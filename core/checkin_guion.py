@@ -67,6 +67,7 @@ class TextosTrato:
     """Textos fijos de un trato; `{nombre}` se rellena al decirlos.
 
     `urgencia` y `autolesion` son cierres completos (sin despedida normal).
+    `cierre_error` se dice, sin nombre, si algo falla y no se puede seguir.
     """
 
     saludo: str
@@ -74,6 +75,7 @@ class TextosTrato:
     despedida: str
     urgencia: str
     autolesion: str
+    cierre_error: str
 
 
 GUION: tuple[Pregunta, ...] = (
@@ -124,6 +126,18 @@ _AUTOLESION_TU = (
     "Gracias por contármelo, {nombre}."
 )
 
+# Pendiente de validar con VitaPlus
+_CIERRE_ERROR_USTED = (
+    "Lo siento, ha habido un problema y no puedo seguir hablando ahora. "
+    "Si necesita ayuda urgente, llame al 112. Si piensa en hacerse daño, "
+    "llame al 024. Hasta mañana."
+)
+_CIERRE_ERROR_TU = (
+    "Lo siento, ha habido un problema y no puedo seguir hablando ahora. "
+    "Si necesitas ayuda urgente, llama al 112. Si piensas en hacerte daño, "
+    "llama al 024. Hasta mañana."
+)
+
 TEXTOS: dict[Trato, TextosTrato] = {
     Trato.USTED: TextosTrato(
         saludo=(
@@ -134,6 +148,7 @@ TEXTOS: dict[Trato, TextosTrato] = {
         despedida="Muchas gracias, {nombre}. Que tenga un buen día. Hasta mañana.",
         urgencia=_URGENCIA_USTED,
         autolesion=_AUTOLESION_USTED,
+        cierre_error=_CIERRE_ERROR_USTED,
     ),
     Trato.TU: TextosTrato(
         saludo=(
@@ -144,5 +159,6 @@ TEXTOS: dict[Trato, TextosTrato] = {
         despedida="Muchas gracias, {nombre}. Que tengas un buen día. Hasta mañana.",
         urgencia=_URGENCIA_TU,
         autolesion=_AUTOLESION_TU,
+        cierre_error=_CIERRE_ERROR_TU,
     ),
 }
