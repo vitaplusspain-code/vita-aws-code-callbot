@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from core.checkin import (
@@ -10,7 +12,7 @@ from core.checkin import (
 from core.checkin_guion import Paso, Trato
 from core.errores import TratoInvalido
 from core.interprete import InterpreteReglas
-from core.riesgo import TipoRiesgo
+from core.riesgo import LONGITUD_MAXIMA_VERBATIM, TipoRiesgo
 from tests.dobles_checkin import InterpreteEspia, InterpreteFijo, InterpreteQueLanza
 
 URGENCIA = (
@@ -94,13 +96,35 @@ def test_texto_no_str_se_trata_como_vacio(texto: object) -> None:
     assert turno.observaciones == ()
 
 
-def test_la_entrada_se_trunca_a_5000_caracteres() -> None:
-    texto = "bien " + "y " * 2600 + "socorro"
+def test_la_urgencia_despues_del_caracter_5000_se_detecta(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    texto = "bien " + "y " * 2600 + "me he caído"
+    assert len(texto) > 5000
+
+    with caplog.at_level(logging.DEBUG):
+        turno = _avanzar(EstadoCheckin(Paso.ANIMO_HOY, 0), texto)
+
+    assert turno.senal_riesgo is not None
+    assert turno.senal_riesgo.kind is TipoRiesgo.FALL
+    assert turno.terminado
+    assert "caído" not in caplog.text
+
+
+def test_sin_estado_la_urgencia_despues_del_caracter_5000_se_detecta() -> None:
+    turno = turno_de_riesgo_sin_estado("y " * 2600 + "me he caído", Trato.USTED)
+
+    assert turno is not None
+    assert turno.senal_riesgo is not None
+
+
+def test_el_texto_que_se_interpreta_y_guarda_se_acota() -> None:
+    texto = "bien " + "y " * 2600
 
     turno = _avanzar(EstadoCheckin(Paso.ANIMO_HOY, 0), texto)
 
     assert turno.senal_riesgo is None
-    assert turno.observaciones[0].value_code == "bien"
+    assert len(turno.observaciones[0].verbatim) <= LONGITUD_MAXIMA_VERBATIM
 
 
 def test_riesgo_dentro_de_los_5000_caracteres_se_detecta() -> None:
