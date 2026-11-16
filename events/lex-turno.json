@@ -1,0 +1,33 @@
+{
+  "messageVersion": "1.0",
+  "invocationSource": "DialogCodeHook",
+  "inputMode": "Speech",
+  "responseContentType": "text/plain; charset=utf-8",
+  "sessionId": "00000000-ejemplo-sesion-lex",
+  "inputTranscript": "pues me encuentro bastante bien",
+  "bot": {
+    "id": "BOTIDEJEMPLO",
+    "name": "vita-dev-callbot-bot",
+    "aliasId": "ALIASEJEMPLO",
+    "localeId": "es_ES",
+    "version": "1"
+  },
+  "interpretations": [],
+  "proposedNextState": null,
+  "requestAttributes": null,
+  "sessionState": {
+    "sessionAttributes": {
+      "call_id": "0b6c1f0e-1111-4222-8333-444455556666",
+      "checkin_version": "checkin-v1",
+      "checkin_paso": "animo_hoy",
+      "checkin_intentos": "0"
+    },
+    "intent": {
+      "name": "Conversacion",
+      "slots": {"respuesta": null},
+      "state": "InProgress",
+      "confirmationState": "None"
+    }
+  },
+  "transcriptions": []
+}
