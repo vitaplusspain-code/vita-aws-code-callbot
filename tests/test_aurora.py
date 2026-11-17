@@ -244,6 +244,120 @@ def test_registrar_recepcion_traduce_el_fallo() -> None:
     assert str(info.value) == MENSAJE_LECTURA
 
 
+# --- Aurora pausada: reintentos mientras despierta ---------------------------
+
+REANUDANDO = "DatabaseResumingException"
+# Límite de API Gateway (29 s) menos margen para el resto del aviso.
+SEGUNDOS_MAXIMOS_DE_ESPERA = 20
+
+
+def _adaptador_que_anota(cliente: Any, esperas: list[float]) -> AuroraAdapter:
+    return AuroraAdapter(cliente, CLUSTER, SECRETO, BASE, esperar=esperas.append)
+
+
+def test_reintenta_mientras_aurora_despierta_y_acaba_bien() -> None:
+    cliente = _cliente()
+    esperas: list[float] = []
+    with Stubber(cliente) as stubber:
+        stubber.add_client_error("execute_statement", REANUDANDO)
+        stubber.add_client_error("execute_statement", REANUDANDO)
+        _escritura(stubber, modulo_aurora.SQL_REGISTRAR_RECEPCION, PARAMS_ALERTA, 1)
+
+        _adaptador_que_anota(cliente, esperas).registrar_recepcion(ALERT_ID)
+
+        stubber.assert_no_pending_responses()
+    assert esperas == list(modulo_aurora.ESPERAS_REANUDACION[:2])
+
+
+def test_si_aurora_no_despierta_a_tiempo_es_error_de_base() -> None:
+    cliente = _cliente()
+    esperas: list[float] = []
+    intentos = len(modulo_aurora.ESPERAS_REANUDACION) + 1
+    with Stubber(cliente) as stubber:
+        for _ in range(intentos):
+            stubber.add_client_error("execute_statement", REANUDANDO)
+
+        with pytest.raises(ErrorBaseDatos) as info:
+            _adaptador_que_anota(cliente, esperas).registrar_recepcion(ALERT_ID)
+
+        stubber.assert_no_pending_responses()
+    assert str(info.value) == MENSAJE_LECTURA
+    assert esperas == list(modulo_aurora.ESPERAS_REANUDACION)
+
+
+def test_otros_errores_no_se_reintentan() -> None:
+    cliente = _cliente()
+    esperas: list[float] = []
+    with Stubber(cliente) as stubber:
+        stubber.add_client_error("execute_statement", "ForbiddenException")
+
+        with pytest.raises(ErrorBaseDatos):
+            _adaptador_que_anota(cliente, esperas).registrar_recepcion(ALERT_ID)
+
+    assert esperas == []
+
+
+def test_las_esperas_caben_en_el_plazo_y_el_plazo_en_api_gateway() -> None:
+    esperas = modulo_aurora.ESPERAS_REANUDACION
+    plazo = modulo_aurora.PLAZO_REANUDACION_S
+
+    assert plazo <= SEGUNDOS_MAXIMOS_DE_ESPERA
+    assert sum(esperas) <= plazo
+    assert list(esperas) == sorted(esperas)  # cada vez se espera más
+
+
+def test_no_reintenta_si_la_espera_se_sale_del_plazo() -> None:
+    """Un intento colgado consume el plazo: no se espera más (límite de 29 s)."""
+    cliente = _cliente()
+    esperas: list[float] = []
+    instantes = iter([0.0, modulo_aurora.PLAZO_REANUDACION_S - 1])
+    adaptador = AuroraAdapter(
+        cliente,
+        CLUSTER,
+        SECRETO,
+        BASE,
+        esperar=esperas.append,
+        reloj=lambda: next(instantes),
+    )
+    with Stubber(cliente) as stubber:
+        stubber.add_client_error("execute_statement", REANUDANDO)
+
+        with pytest.raises(ErrorBaseDatos):
+            adaptador.registrar_recepcion(ALERT_ID)
+
+        stubber.assert_no_pending_responses()
+    assert esperas == []
+
+
+def test_los_fallos_de_conexion_no_se_reintentan() -> None:
+    """Solo se repite lo que seguro no se ejecutó (Aurora despertando)."""
+    esperas: list[float] = []
+
+    class _ClienteSinRed:
+        def execute_statement(self, **kwargs: Any) -> Any:
+            raise EndpointConnectionError(endpoint_url="https://rds-data.example")
+
+    with pytest.raises(ErrorBaseDatos):
+        _adaptador_que_anota(_ClienteSinRed(), esperas).registrar_recepcion(ALERT_ID)
+
+    assert esperas == []
+
+
+def test_el_reintento_se_registra_sin_datos(caplog: pytest.LogCaptureFixture) -> None:
+    cliente = _cliente()
+    with Stubber(cliente) as stubber:
+        stubber.add_client_error("execute_statement", REANUDANDO)
+        _escritura(stubber, modulo_aurora.SQL_REGISTRAR_RECEPCION, PARAMS_ALERTA, 1)
+
+        with caplog.at_level(logging.WARNING, logger="adapters.aurora"):
+            _adaptador_que_anota(cliente, []).registrar_recepcion(ALERT_ID)
+
+    (registro,) = [r for r in caplog.records if r.message == "aurora_reanudando"]
+    assert registro.espera_s == modulo_aurora.ESPERAS_REANUDACION[0]
+    for dato in (ALERT_ID, CLUSTER, SECRETO, "audit_log"):
+        assert dato not in caplog.text
+
+
 # --- alerta_abierta ---------------------------------------------------------
 
 
