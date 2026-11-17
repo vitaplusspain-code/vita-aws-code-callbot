@@ -3,8 +3,9 @@
 import json
 import logging
 import re
-from collections.abc import Mapping
-from typing import Any, Protocol, Self
+import time
+from collections.abc import Callable, Iterator, Mapping
+from typing import Any, NoReturn, Protocol, Self
 
 import boto3
 from botocore.config import Config
@@ -19,6 +20,7 @@ from core.puertos import Reserva
 __all__ = [
     "CODIGOS_AWS_CONOCIDOS",
     "CONFIG_AURORA",
+    "ESPERAS_REANUDACION",
     "ESQUEMA",
     "VARIABLES_AURORA",
     "VAR_BASE",
@@ -45,6 +47,16 @@ CONFIG_AURORA = Config(
     read_timeout=SEGUNDOS_LECTURA,
     retries={"total_max_attempts": 1, "mode": "standard"},
 )
+
+# Aurora se pausa sola cuando no se usa y la Data API responde
+# `DatabaseResumingException` mientras despierta (unos 15 s según AWS). Se
+# reintenta solo ese error, esperando cada vez más y sin pasar de un plazo total
+# medido con reloj (los intentos también tardan), para que el aviso quepa en los
+# 29 s de API Gateway. Tras más de 24 h en pausa AWS habla de 30 s o más: ese
+# caso no se cubre (ver `afinado-post-mvp.md`).
+CODIGO_REANUDANDO = "DatabaseResumingException"
+ESPERAS_REANUDACION = (2.0, 4.0, 6.0, 8.0)
+PLAZO_REANUDACION_S = 20.0
 
 # Errores de la Data API (más los genéricos de acceso). Solo estos códigos se
 # registran; cualquier otro se anota como `None`.
@@ -183,8 +195,14 @@ class ClienteDataApi:
         cluster_arn: str,
         secret_arn: str,
         database: str,
+        *,
+        esperar: Callable[[float], None] = time.sleep,
+        reloj: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Recibe el cliente de boto3 ya creado y la configuración de Aurora."""
+        """Recibe el cliente de boto3 ya creado y la configuración de Aurora.
+
+        `esperar` y `reloj` se sustituyen en los tests para no dormir de verdad.
+        """
         if not cluster_arn:
             raise ErrorConfiguracion("Falta cluster_arn de Aurora.")
         if not secret_arn:
@@ -195,6 +213,8 @@ class ClienteDataApi:
         self._cluster_arn = cluster_arn
         self._secret_arn = secret_arn
         self._database = database
+        self._esperar = esperar
+        self._reloj = reloj
 
     @classmethod
     def crear(cls, cluster_arn: str, secret_arn: str, database: str) -> Self:
@@ -216,23 +236,50 @@ class ClienteDataApi:
     def _ejecutar(
         self, sql: str, parametros: list[dict[str, Any]], **extra: Any
     ) -> Mapping[str, Any]:
-        """Llama a `execute_statement`; traduce los fallos de AWS."""
-        try:
-            return self._cliente.execute_statement(
-                resourceArn=self._cluster_arn,
-                secretArn=self._secret_arn,
-                database=self._database,
-                sql=sql,
-                parameters=parametros,
-                **extra,
-            )
-        except (ClientError, BotoCoreError) as error:
-            _registrar_fallo_aws(error)
-            restriccion = _restriccion_violada(error)
-            if restriccion is not None:
-                raise ErrorUnicidad(_MENSAJE_FALLO, restriccion) from None
-            # `from None`: el contexto llevaría el ARN y el SQL de la petición.
-            raise ErrorBaseDatos(_MENSAJE_FALLO) from None
+        """Llama a `execute_statement`; traduce los fallos de AWS.
+
+        Si Aurora está despertando, reintenta (ver `_espera_para_reintentar`).
+        """
+        inicio = self._reloj()
+        esperas = iter(ESPERAS_REANUDACION)
+        while True:
+            try:
+                return self._cliente.execute_statement(
+                    resourceArn=self._cluster_arn,
+                    secretArn=self._secret_arn,
+                    database=self._database,
+                    sql=sql,
+                    parameters=parametros,
+                    **extra,
+                )
+            except (ClientError, BotoCoreError) as error:
+                espera = self._espera_para_reintentar(error, esperas, inicio)
+                if espera is None:
+                    _traducir(error)
+                logger.warning("aurora_reanudando", extra={"espera_s": espera})
+                self._esperar(espera)
+
+    def _espera_para_reintentar(
+        self,
+        error: ClientError | BotoCoreError,
+        esperas: Iterator[float],
+        inicio: float,
+    ) -> float | None:
+        """Segundos que esperar antes de repetir, o `None` si no se repite.
+
+        Solo se repite `DatabaseResumingException`: la sentencia no llegó a
+        ejecutarse, así que repetirla no duplica escrituras. No añadir otros
+        códigos (timeouts, `StatementTimeoutException`) ni usarlo dentro de una
+        transacción sin pensar antes en la idempotencia.
+        """
+        if _codigo(error) != CODIGO_REANUDANDO:
+            return None
+        espera = next(esperas, None)
+        if espera is None:
+            return None
+        if self._reloj() - inicio + espera > PLAZO_REANUDACION_S:
+            return None
+        return espera
 
     def _escribir(self, sql: str, parametros: list[dict[str, Any]]) -> int:
         """Ejecuta una escritura y devuelve las filas afectadas."""
@@ -335,12 +382,27 @@ def validar[T: BaseModel](modelo: type[T], fila: dict[str, Any]) -> T:
         raise DatosInvalidos(_MENSAJE_RESPUESTA) from None
 
 
+def _codigo(error: ClientError | BotoCoreError) -> str | None:
+    """Código de error de AWS, o `None` si no es un `ClientError`."""
+    if not isinstance(error, ClientError):
+        return None
+    return error.response.get("Error", {}).get("Code")
+
+
+def _traducir(error: ClientError | BotoCoreError) -> NoReturn:
+    """Registra el fallo y lo convierte en un error del dominio."""
+    _registrar_fallo_aws(error)
+    restriccion = _restriccion_violada(error)
+    if restriccion is not None:
+        raise ErrorUnicidad(_MENSAJE_FALLO, restriccion) from None
+    # `from None`: el contexto llevaría el ARN y el SQL de la petición.
+    raise ErrorBaseDatos(_MENSAJE_FALLO) from None
+
+
 def _registrar_fallo_aws(error: ClientError | BotoCoreError) -> None:
     """Registra el fallo (solo tipo y código conocido, sin SQL ni datos)."""
-    codigo = None
-    if isinstance(error, ClientError):
-        candidato = error.response.get("Error", {}).get("Code")
-        codigo = candidato if candidato in CODIGOS_AWS_CONOCIDOS else None
+    candidato = _codigo(error)
+    codigo = candidato if candidato in CODIGOS_AWS_CONOCIDOS else None
     logger.warning(
         "aurora_fallo", extra={"tipo": type(error).__name__, "codigo": codigo}
     )
