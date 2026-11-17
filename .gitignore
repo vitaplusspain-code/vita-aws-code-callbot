@@ -15,3 +15,6 @@ htmlcov/
 .env
 .env.*
 *.log
+
+# Copias locales de los flujos de Connect con el ARN real
+connect/*.local.json
