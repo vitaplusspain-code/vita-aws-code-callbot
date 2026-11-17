@@ -1,0 +1,93 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "ba6b209f-8501-41a4-9e60-228e00d9d545",
+  "Metadata": {
+    "EntryPointPosition": { "x": 40, "y": 40 },
+    "ActionMetadata": {
+      "ba6b209f-8501-41a4-9e60-228e00d9d545": { "Position": { "x": 200, "y": 40 } },
+      "7cf4fb77-1a54-43cd-bae9-a5b554285543": { "Position": { "x": 480, "y": 40 } },
+      "0bbc8ebd-04f6-422a-9c03-59fd82760292": { "Position": { "x": 780, "y": 300 } },
+      "9b7a0377-a967-4905-9527-9e3aefe79060": { "Position": { "x": 1080, "y": 40 } }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "ba6b209f-8501-41a4-9e60-228e00d9d545",
+      "Type": "UpdateContactTextToSpeechVoice",
+      "Parameters": {
+        "TextToSpeechVoice": "Lucia",
+        "TextToSpeechEngine": "neural",
+        "TextToSpeechStyle": "None"
+      },
+      "Transitions": {
+        "NextAction": "7cf4fb77-1a54-43cd-bae9-a5b554285543",
+        "Errors": [
+          {
+            "NextAction": "9b7a0377-a967-4905-9527-9e3aefe79060",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "7cf4fb77-1a54-43cd-bae9-a5b554285543",
+      "Type": "ConnectParticipantWithLexBot",
+      "Parameters": {
+        "Text": "Hola, le llama el asistente automático de VitaPlus.",
+        "LexV2Bot": {
+          "AliasArn": "SUSTITUIR_ARN_ALIAS_BOT_CHECKIN"
+        },
+        "LexSessionAttributes": {
+          "call_id": "$.Attributes.call_id",
+          "x-amz-lex:audio:start-timeout-ms:*:*": "6000",
+          "x-amz-lex:audio:end-timeout-ms:*:*": "1200"
+        }
+      },
+      "Transitions": {
+        "NextAction": "0bbc8ebd-04f6-422a-9c03-59fd82760292",
+        "Conditions": [
+          {
+            "NextAction": "9b7a0377-a967-4905-9527-9e3aefe79060",
+            "Condition": { "Operator": "Equals", "Operands": ["Conversacion"] }
+          }
+        ],
+        "Errors": [
+          {
+            "NextAction": "0bbc8ebd-04f6-422a-9c03-59fd82760292",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "0bbc8ebd-04f6-422a-9c03-59fd82760292",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "0bbc8ebd-04f6-422a-9c03-59fd82760292",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "0bbc8ebd-04f6-422a-9c03-59fd82760292",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "Lo siento, ha habido un problema y no puedo seguir hablando ahora. Si necesita ayuda urgente, llame al 112. Si piensa en hacerse daño, llame al 024. Hasta mañana."
+      },
+      "Transitions": {
+        "NextAction": "9b7a0377-a967-4905-9527-9e3aefe79060",
+        "Errors": [
+          {
+            "NextAction": "9b7a0377-a967-4905-9527-9e3aefe79060",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "9b7a0377-a967-4905-9527-9e3aefe79060",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}
