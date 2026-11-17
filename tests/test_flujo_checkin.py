@@ -157,7 +157,30 @@ def test_el_aviso_inicial_es_un_texto_fijo_sin_datos(lex: Accion) -> None:
 
     assert texto
     assert "$." not in texto
+    assert "{" not in texto  # sin nombre: quien coge puede no ser la persona
     assert not {"SSML", "PromptId", "Media"} & set(parametros)
+
+
+def test_el_aviso_inicial_se_identifica_como_asistente_automatico(
+    lex: Accion,
+) -> None:
+    """Decisión 9: se identifica desde la primera frase, aunque nadie conteste."""
+    texto = lex["Parameters"]["Text"]
+
+    assert "asistente automático" in texto
+    assert "VitaPlus" in texto
+
+
+def test_el_flujo_no_toca_la_grabacion_ni_los_registros(acciones: Acciones) -> None:
+    """Solo los cuatro bloques del guion: nada de grabar ni de registrar."""
+    tipos = {a["Type"] for a in acciones.values()}
+
+    assert tipos == {
+        "UpdateContactTextToSpeechVoice",
+        "ConnectParticipantWithLexBot",
+        "MessageParticipant",
+        "DisconnectParticipant",
+    }
 
 
 def test_al_cerrar_el_intent_cuelga_sin_mas(acciones: Acciones, lex: Accion) -> None:
@@ -190,6 +213,7 @@ def test_el_cierre_fijo_menciona_el_112_sin_nombres_y_cuelga(
 
     assert texto == TEXTOS[Trato.USTED].cierre_error  # el mismo que la Lambda
     assert "112" in texto
+    assert "024" in texto
     assert "{" not in texto
     assert "$." not in texto
     assert set(_errores(cierre)) == {"NoMatchingError"}
@@ -206,6 +230,19 @@ def test_el_flujo_no_lleva_datos_de_cuenta_ni_telefonos() -> None:
     assert not re.search(r"\d{12}", texto)  # identificador de cuenta de AWS
     assert not re.search(r"\+\d{6,}", texto)
     assert not re.search(r"bot-alias/|TSTALIASID", texto)
+
+
+def test_la_guia_no_lleva_datos_de_cuenta_ni_telefonos() -> None:
+    texto = GUIA.read_text(encoding="utf-8")
+
+    assert not re.search(r"\d{12}", texto)  # identificador de cuenta de AWS
+    assert not re.search(r"\+\d{6,}", texto)
+    for arn in re.findall(r"arn:aws:\S+", texto):
+        assert "<cuenta>" in arn, arn  # solo ARN de ejemplo, con marcadores
+
+
+def test_la_guia_pide_que_la_grabacion_siga_apagada() -> None:
+    assert "grabación" in GUIA.read_text(encoding="utf-8").lower()
 
 
 def test_la_guia_nombra_el_marcador_el_atributo_y_la_voz() -> None:

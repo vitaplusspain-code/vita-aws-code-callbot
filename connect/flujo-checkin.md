@@ -2,7 +2,7 @@
 
 Flujo que ejecuta Amazon Connect cuando el lanzador (`handlers/lanzar_checkin.py`) pide la llamada con `StartOutboundVoiceContact`. Fija la voz y deja la conversación en manos del bot de Lex V2 `vita-dev-callbot-checkin` (alias `vita-dev-callbot-checkin-activo`, idioma `es_ES`), que a su vez la deja en manos de la Lambda `vita-dev-callbot-conversacion`. Cuando el bot cierra la conversación, el flujo cuelga.
 
-La llamada solo lleva un atributo de contacto, `call_id` (`$.Attributes.call_id`), un UUID sin datos personales. El flujo lo pasa a la sesión de Lex con la misma clave, `call_id`, y la Lambda lo lee de `sessionAttributes` (`adapters/lex.py`). El flujo no contiene nombres ni datos de personas: solo un «Hola.» inicial y el cierre fijo de error.
+La llamada solo lleva un atributo de contacto, `call_id` (`$.Attributes.call_id`), un UUID sin datos personales. El flujo lo pasa a la sesión de Lex con la misma clave, `call_id`, y la Lambda lo lee de `sessionAttributes` (`adapters/lex.py`). El flujo no contiene nombres ni datos de personas: solo un «Hola, le llama el asistente automático de VitaPlus.» inicial y el cierre fijo de error.
 
 Hay dos formas de crearlo. Las dos dan el mismo resultado. Los nombres de menús y opciones de la consola pueden variar un poco según la versión de Connect.
 
@@ -15,7 +15,7 @@ Hay dos formas de crearlo. Las dos dan el mismo resultado. Los nombres de menús
 
 El JSON no lleva el ARN del alias: en su lugar tiene el marcador `SUSTITUIR_ARN_ALIAS_BOT_CHECKIN`, para no guardar en el repo el número de cuenta.
 
-1. Haz una **copia local** de `connect/flujo-checkin.json` fuera del repo (por ejemplo, en el escritorio) y, en la copia, sustituye `SUSTITUIR_ARN_ALIAS_BOT_CHECKIN` por el ARN del alias. No guardes el ARN en el repo.
+1. Haz una **copia local** de `connect/flujo-checkin.json` fuera del repo (por ejemplo, en el escritorio; si la dejas dentro, llámala `connect/flujo-checkin.local.json`, que git ignora) y, en la copia, sustituye `SUSTITUIR_ARN_ALIAS_BOT_CHECKIN` por el ARN del alias. No guardes el ARN en el repo.
 2. En la consola de Connect de la instancia `vita-dev-callbot` (eu-central-1), ve a **Routing → Flows**.
 3. Si el flujo `vita-dev-callbot-flujo-checkin` ya existe, ábrelo e importa encima: se sustituye y **el identificador no cambia**, así que el parámetro `ConnectFlujoCheckinId` no necesita cambios. Si no existe, crea uno nuevo de tipo *Inbound flow* (en la consola sale como *Contact flow (inbound)*; en la API, `CONTACT_FLOW`), el mismo tipo que el del aviso, y llámalo `vita-dev-callbot-flujo-checkin`.
 4. En el desplegable junto a **Save**, elige **Import (beta)** y selecciona la copia del paso 1.
@@ -34,7 +34,7 @@ Crea un *Inbound flow* vacío con el nombre `vita-dev-callbot-flujo-checkin` y a
 | # | Bloque | Configuración | Salidas |
 |---|---|---|---|
 | 1 | **Set voice** | Idioma: español (España). Voz: **Lucia**. Activa la sustitución del estilo de habla y elige el motor **Neural**, sin estilo. | Success → 2. Error → 4. |
-| 2 | **Get customer input** (Lex) | Texto a voz definido a mano, interpretado como texto: `Hola.` Pestaña **Amazon Lex**: bot `vita-dev-callbot-checkin`, alias `vita-dev-callbot-checkin-activo` (o el ARN del alias). **Atributos de sesión**: `call_id` = valor dinámico, atributo definido por el usuario `call_id` (`$.Attributes.call_id`); `x-amz-lex:audio:start-timeout-ms:*:*` = `6000`; `x-amz-lex:audio:end-timeout-ms:*:*` = `1200`. **Intents**: añade `Conversacion`. Sin *Initialize bot with message*. | Conversacion → 4. Default → 3. Timeout → 3 (si sale). Error → 3. |
+| 2 | **Get customer input** (Lex) | Texto a voz definido a mano, interpretado como texto: `Hola, le llama el asistente automático de VitaPlus.` Pestaña **Amazon Lex**: bot `vita-dev-callbot-checkin`, alias `vita-dev-callbot-checkin-activo` (o el ARN del alias). **Atributos de sesión**: `call_id` = valor dinámico, atributo definido por el usuario `call_id` (`$.Attributes.call_id`); `x-amz-lex:audio:start-timeout-ms:*:*` = `6000`; `x-amz-lex:audio:end-timeout-ms:*:*` = `1200`. **Intents**: añade `Conversacion`. Sin *Initialize bot with message*. | Conversacion → 4. Default → 3. Timeout → 3 (si sale). Error → 3. |
 | 3 | **Play prompt** | Texto a voz definido a mano, interpretado como texto: `Lo siento, ha habido un problema y no puedo seguir hablando ahora. Si necesita ayuda urgente, llame al 112. Si piensa en hacerse daño, llame al 024. Hasta mañana.` | Success → 4. Error → 4. |
 | 4 | **Disconnect / hang up** | Sin configuración. | — |
 
@@ -44,7 +44,7 @@ El punto de entrada va al bloque 1. Guarda, publica y copia el identificador com
 
 **El bot no puede hablar primero en una llamada de voz.** La documentación del *Flow language* lo dice expresamente en `ConnectParticipantWithLexBot`: `LexInitializationData` («Initialize bot with message») «is only supported for Chat channel today. The Voice channel is not supported». En voz, Lex solo actúa cuando la persona dice algo. Por eso:
 
-1. Connect fija la voz y entra en el bloque de Lex, que dice el «Hola.» del flujo. Es una invitación a hablar para quien coge el teléfono y espera en silencio. Se puede interrumpir hablando (*barge-in*), así que un «¿Diga?» dicho a la vez también vale.
+1. Connect fija la voz y entra en el bloque de Lex, que dice el «Hola, le llama el asistente automático de VitaPlus.» del flujo. Es una invitación a hablar para quien coge el teléfono y espera en silencio. Se puede interrumpir hablando (*barge-in*), así que un «¿Diga?» dicho a la vez también vale.
 2. Lo primero que diga la persona («¿Diga?», «¿Sí?», «Hola, ¿quién es?») llega a Lex. Si encaja con las frases de ejemplo del intent `Conversacion` («hola», «sí», «dígame»…), entra en él; si no, entra en `FallbackIntent`. Los dos llaman a la Lambda.
 3. La Lambda ve que la sesión aún no tiene estado (`core/conversar.py`, `hay_estado`) y responde el primer turno: el saludo con el nombre y la identificación como asistente automático, más la primera pregunta. Antes pasa esa primera frase por el detector de riesgo.
 4. A partir de ahí la Lambda pide el slot `respuesta` en cada turno (`ElicitSlot`) y, al terminar, cierra con `Close` y el intent `Conversacion` en `Fulfilled`, con la despedida, el aviso del 112 o el cierre de error como último mensaje.
@@ -66,7 +66,9 @@ Si falla el bloque de la voz, se cuelga sin decir nada: leer el castellano con l
 
 - **El `call_id` va como atributo de sesión.** `LexSessionAttributes` admite claves y valores estáticos o dinámicos; aquí la clave es fija (`call_id`) y el valor, el atributo de contacto `$.Attributes.call_id`. Los atributos de sesión que devuelve la Lambda tienen prioridad sobre los del flujo, y la Lambda devuelve siempre el `call_id`.
 - **Tiempos de voz desde el primer turno.** La Lambda fija 6000 ms de silencio inicial y 1200 ms de fin de frase para el slot `respuesta` (`TIEMPOS_VOZ`), pero Connect avisa de que, si los atributos los pone la Lambda, se usan los valores por defecto (3000 y 600 ms) hasta que se la invoca. El primer turno aún no tiene intent ni slot, así que el flujo pone los mismos valores con el comodín `*:*`. Un test comprueba que coinciden con los de la Lambda.
-- **Lucia con el motor neural**, como en el flujo del aviso. Los mensajes del bot los sintetiza Lex con su propia voz (`VoiceSettings` del bot, también Lucia neural, en `template-frankfurt.yaml`); la voz del flujo se oye en el «Hola.» y en el cierre de error.
+- **Lucia con el motor neural**, como en el flujo del aviso. Los mensajes del bot los sintetiza Lex con su propia voz (`VoiceSettings` del bot, también Lucia neural, en `template-frankfurt.yaml`); la voz del flujo se oye en el «Hola, le llama el asistente automático de VitaPlus.» y en el cierre de error.
+- **Se identifica desde la primera frase** (decisión 9), sin decir el nombre: quien coge el teléfono puede no ser la persona mayor, y si nadie habla se oye igualmente que es un asistente automático. El nombre lo dice la Lambda en su primer turno.
+- **Grabación y registros apagados.** El flujo no tiene bloques de grabación (*Set recording and analytics behavior*) ni de registro (*Set logging behavior*), y un test lo comprueba. Lo que dice la persona mayor son datos de salud: no actives la grabación ni los registros del flujo en la instancia. Si algún día se activan para otros flujos, añade aquí un bloque que los apague.
 - **Sin SSML en los mensajes del bot.** La Lambda manda `PlainText`; que Connect reproduzca SSML del bot está sin verificar.
 
 ## Sin verificar (comprobar en la primera llamada real)
@@ -74,7 +76,7 @@ Si falla el bloque de la voz, se cuelga sin decir nada: leer el castellano con l
 - **Que el `sessionId` de Lex sea el `ContactId` de Connect.** La documentación oficial no lo dice: la de Lex V2 describe `sessionId` sin mencionar Connect, y la de Connect no documenta qué valor usa (en la tabla `bot_conversations` del *data lake*, `bot_session_id` y `contact_id` son columnas distintas, sin decir si coinciden). Solo lo afirman fuentes no oficiales para voz (un blog de diciembre de 2022 y respuestas en re:Post); en chat, otra respuesta de re:Post dice que Connect usa el `participantId`. La Lambda depende de ello (`contacto_id` en `adapters/lex.py`): si no coincide, la conversación cierra con el texto de error. En la primera llamada, compara el `session_id` del log de `vita-dev-callbot-conversacion` con el `ContactId` que guarda el lanzador.
 - Que el comodín `*:*` de los tiempos de voz se aplique al primer turno, cuando aún no hay intent.
 - Que el `FallbackIntent` pueda pasar a `Conversacion` con la respuesta de la Lambda (`ElicitSlot` sobre otro intent).
-- Qué hace Lex si la persona no dice nada tras el «Hola.» (en voz no hay salida *Timeout*): lo esperable es que el bot vuelva sin intent y el flujo tome **Default** o **Error**, es decir, el cierre fijo.
+- Qué hace Lex si la persona no dice nada tras el «Hola, le llama el asistente automático de VitaPlus.» (en voz no hay salida *Timeout*): lo esperable es que el bot vuelva sin intent y el flujo tome **Default** o **Error**, es decir, el cierre fijo.
 - Si salta un contestador, su mensaje llega a Lex como si fuera la persona, y la Lambda saludaría con el nombre. La detección de contestadores de Connect parece ligada a las campañas salientes (no comprobado); queda para el piloto.
 - Las posiciones de los bloques al importar (ver arriba).
 

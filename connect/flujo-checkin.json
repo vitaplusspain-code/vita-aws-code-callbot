@@ -33,7 +33,7 @@
       "Identifier": "7cf4fb77-1a54-43cd-bae9-a5b554285543",
       "Type": "ConnectParticipantWithLexBot",
       "Parameters": {
-        "Text": "Hola.",
+        "Text": "Hola, le llama el asistente automático de VitaPlus.",
         "LexV2Bot": {
           "AliasArn": "SUSTITUIR_ARN_ALIAS_BOT_CHECKIN"
         },
